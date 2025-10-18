@@ -1,0 +1,876 @@
+-- Auto-open Discord invite
+pcall(function()
+    local url = 'https://discord.gg/5ARTQYGvnX'
+    if syn and syn.request then
+        -- Synapse exploit can open URL
+        syn.request({ Url = url, Method = 'GET' })
+    else
+        -- Default Roblox way (opens in browser)
+        local HttpService = game:GetService('HttpService')
+        local success, err = pcall(function()
+            -- Use Roblox's gui prompt to open URL
+            game:GetService('GuiService'):OpenBrowserWindow(url)
+        end)
+        if not success then
+            print('Failed to open Discord link automatically:', err)
+        end
+    end
+end)
+-- Rayfield Loader
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Window
+local Window = Rayfield:CreateWindow({
+    Name = 'Armless Detective - wbuhub',
+    LoadingTitle = 'Armless Detective - wbuhub',
+    LoadingSubtitle = 'made by wburoli',
+    ConfigurationSaving = { Enabled = true },
+})
+
+-- Tabs
+local MainTab = Window:CreateTab('Main', 4483362458)
+local LocalPlayerTab = Window:CreateTab('Local Player', 4483362458)
+local EspTab = Window:CreateTab('ESP', 4483362458)
+local GameValuesTab = Window:CreateTab('Game Values', 4483362458)
+local SettingsTab = Window:CreateTab('Settings', 4483362458)
+
+-- Services
+local Players = game:GetService('Players')
+local RS = game:GetService('ReplicatedStorage')
+local RunService = game:GetService('RunService')
+local CoreGui = game:GetService('CoreGui')
+local UserInputService = game:GetService('UserInputService')
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild('PlayerGui', 10)
+
+-- Basic game objects
+local EvidenceFolder = workspace:FindFirstChild('ActiveEvidence')
+local ValuesFolder = RS:FindFirstChild('Values')
+local GuiltySuspect = nil
+if ValuesFolder then
+    GuiltySuspect = ValuesFolder:FindFirstChild('GuiltySuspect')
+end
+
+-- State
+local created = {} -- created[owner] = {instances...}
+local connections = {} -- connection list
+local distanceTracked = {} -- adornee -> {label = TextLabel, baseText = string}
+local distanceMasterConn = nil
+
+local evidenceESPEnabled = false
+local playerESPEnabled = false
+local showSuspect = false
+
+-- Helpers
+local function track(owner, inst)
+    if owner == nil then
+        owner = '__global'
+    end
+    if created[owner] == nil then
+        created[owner] = {}
+    end
+    table.insert(created[owner], inst)
+    return inst
+end
+
+local function trackConn(conn)
+    if conn ~= nil then
+        table.insert(connections, conn)
+    end
+    return conn
+end
+
+local function safeDisconnect(conn)
+    if conn == nil then
+        return
+    end
+    pcall(function()
+        conn:Disconnect()
+    end)
+end
+
+local function clearConnections()
+    for _, c in ipairs(connections) do
+        safeDisconnect(c)
+    end
+    connections = {}
+end
+
+local function isBasePart(obj)
+    if obj == nil then
+        return false
+    end
+    if type(obj) ~= 'userdata' then
+        return false
+    end
+    if obj.IsA == nil then
+        return false
+    end
+    return obj:IsA('BasePart')
+end
+
+-- Billboard builder (consistent param name 'adornee')
+local function createBillboard(adornee, baseText, size, color)
+    if adornee == nil or adornee.Parent == nil then
+        return nil
+    end
+
+    local gui = Instance.new('BillboardGui')
+    gui.Name = 'wbuhub_Billboard'
+    gui.Adornee = adornee
+    gui.Size = size or UDim2.new(0, 120, 0, 25)
+    gui.StudsOffset = Vector3.new(0, 3, 0)
+    gui.AlwaysOnTop = true
+    gui.MaxDistance = 500
+    gui.Parent = PlayerGui
+
+    local charm = Instance.new('ImageLabel')
+    charm.Name = 'wbuhub_Charm'
+    charm.Size = UDim2.new(1.2, 0, 1.5, 0)
+    charm.Position = UDim2.new(-0.1, 0, -0.25, 0)
+    charm.BackgroundTransparency = 1
+    charm.Image = 'rbxassetid://5028857472'
+    charm.ImageColor3 = color or Color3.fromRGB(255, 200, 80)
+    charm.ImageTransparency = 0.45
+    charm.ZIndex = 0
+    charm.Parent = gui
+
+    local label = Instance.new('TextLabel')
+    label.Name = 'wbuhub_Label'
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextStrokeTransparency = 0.4
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = true
+    label.ZIndex = 1
+    label.Text = tostring(baseText or '')
+    label.Parent = gui
+
+    -- pulse animation
+    task.spawn(function()
+        while gui.Parent do
+            for i = 0.35, 0.6, 0.02 do
+                if charm.Parent == nil then
+                    break
+                end
+                charm.ImageTransparency = i
+                task.wait(0.04)
+            end
+            for i = 0.6, 0.35, -0.02 do
+                if charm.Parent == nil then
+                    break
+                end
+                charm.ImageTransparency = i
+                task.wait(0.04)
+            end
+            task.wait(0.05)
+        end
+    end)
+
+    track(adornee, gui)
+    return gui, label, charm
+end
+
+-- Distance updater (single connection for efficiency)
+local function ensureDistanceMaster()
+    if distanceMasterConn ~= nil then
+        return
+    end
+    distanceMasterConn = trackConn(RunService.RenderStepped:Connect(function()
+        local char = LocalPlayer.Character
+        local hrp = nil
+        if char ~= nil then
+            hrp = char:FindFirstChild('HumanoidRootPart')
+        end
+        if hrp == nil then
+            return
+        end
+        for adornee, info in pairs(distanceTracked) do
+            pcall(function()
+                if
+                    adornee ~= nil
+                    and adornee.Position ~= nil
+                    and info.label ~= nil
+                    and info.baseText ~= nil
+                then
+                    local dist =
+                        math.floor((hrp.Position - adornee.Position).Magnitude)
+                    info.label.Text =
+                        string.format('%s [%d]', info.baseText, dist)
+                end
+            end)
+        end
+    end))
+end
+
+local function attachDistance(label, adornee, baseText)
+    if label == nil or adornee == nil then
+        return
+    end
+    distanceTracked[adornee] = { label = label, baseText = baseText }
+    ensureDistanceMaster()
+end
+
+-- Evidence ESP
+local evidenceMap = {} -- part -> { gui=..., highlight=... }
+local evidenceAddedConn = nil
+local evidenceRemovingConn = nil
+
+local function makeEvidence(part)
+    if not isBasePart(part) then
+        return
+    end
+    if evidenceMap[part] ~= nil then
+        return
+    end
+
+    local text = part.Name
+    if
+        showSuspect == true
+        and GuiltySuspect ~= nil
+        and GuiltySuspect.Value ~= nil
+    then
+        text = text .. ' | ' .. tostring(GuiltySuspect.Value)
+    end
+
+    local gui, label = createBillboard(
+        part,
+        text,
+        UDim2.new(0, 120, 0, 25),
+        Color3.fromRGB(255, 200, 80)
+    )
+    if gui == nil then
+        return
+    end
+    if label ~= nil then
+        attachDistance(label, part, text)
+    end
+
+    local ok, hl = pcall(function()
+        local h = Instance.new('Highlight')
+        h.Name = 'wbuhub_EvidenceHL'
+        h.Adornee = part
+        h.FillColor = Color3.fromRGB(255, 220, 80)
+        h.OutlineColor = Color3.fromRGB(30, 30, 30)
+        h.FillTransparency = 0.6
+        h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.Parent = CoreGui
+        return h
+    end)
+    if ok and hl ~= nil then
+        track(part, hl)
+        evidenceMap[part] = { gui = gui, highlight = hl }
+    end
+end
+
+local function removeEvidence(part)
+    if part == nil then
+        return
+    end
+    local list = created[part]
+    if list ~= nil then
+        for _, inst in ipairs(list) do
+            pcall(function()
+                if inst ~= nil and inst.Parent ~= nil then
+                    inst:Destroy()
+                end
+            end)
+        end
+        created[part] = nil
+    end
+    evidenceMap[part] = nil
+    distanceTracked[part] = nil
+end
+
+local function enableEvidenceESP()
+    if EvidenceFolder == nil then
+        EvidenceFolder = workspace:FindFirstChild('ActiveEvidence')
+    end
+    if EvidenceFolder == nil then
+        Rayfield:Notify({
+            Title = 'ESP',
+            Content = 'ActiveEvidence not found',
+            Duration = 3,
+        })
+        return
+    end
+
+    local destroyedLib = EvidenceFolder:FindFirstChild('DestroyedLibrary')
+
+    for _, d in ipairs(EvidenceFolder:GetDescendants()) do
+        if isBasePart(d) then
+            local skip = false
+            if destroyedLib ~= nil then
+                if d:IsDescendantOf(destroyedLib) then
+                    skip = true
+                end
+            end
+            if not skip then
+                makeEvidence(d)
+            end
+        end
+    end
+
+    evidenceAddedConn =
+        trackConn(EvidenceFolder.DescendantAdded:Connect(function(d)
+            if isBasePart(d) then
+                local skip2 = false
+                if destroyedLib ~= nil then
+                    if d:IsDescendantOf(destroyedLib) then
+                        skip2 = true
+                    end
+                end
+                if not skip2 then
+                    makeEvidence(d)
+                end
+            end
+        end))
+
+    evidenceRemovingConn =
+        trackConn(EvidenceFolder.DescendantRemoving:Connect(function(d)
+            removeEvidence(d)
+        end))
+end
+
+local function disableEvidenceESP()
+    safeDisconnect(evidenceAddedConn)
+    evidenceAddedConn = nil
+    safeDisconnect(evidenceRemovingConn)
+    evidenceRemovingConn = nil
+
+    for owner, list in pairs(created) do
+        if owner ~= '__global' then
+            for _, inst in ipairs(list) do
+                pcall(function()
+                    if inst ~= nil and inst.Parent ~= nil then
+                        inst:Destroy()
+                    end
+                end)
+            end
+            created[owner] = nil
+        end
+    end
+
+    evidenceMap = {}
+    distanceTracked = {}
+end
+
+-- Player ESP
+local playerMap = {} -- player -> { gui=..., highlight=... }
+local playersAddedConn = nil
+
+local function makePlayer(plr)
+    if plr == nil then
+        return
+    end
+    if plr == LocalPlayer then
+        return
+    end
+    local char = plr.Character
+    if char == nil then
+        return
+    end
+    local hrp = char:FindFirstChild('HumanoidRootPart')
+    if hrp == nil then
+        return
+    end
+    if playerMap[plr] ~= nil then
+        return
+    end
+
+    local baseText = plr.Name
+    local isFriend = LocalPlayer:IsFriendsWith(plr.UserId)
+    if isFriend then
+        baseText = baseText .. ' | FRIEND'
+    end
+
+    local gui, label = createBillboard(
+        hrp,
+        baseText,
+        UDim2.new(0, 100, 0, 20),
+        Color3.fromRGB(80, 180, 255)
+    )
+    if gui == nil then
+        return
+    end
+    if label ~= nil then
+        attachDistance(label, hrp, baseText)
+    end
+
+    local ok, hl = pcall(function()
+        local h = Instance.new('Highlight')
+        h.Name = 'wbuhub_PlayerHL'
+        h.Adornee = char
+        h.FillColor = Color3.fromRGB(80, 180, 255)
+        h.OutlineColor = Color3.fromRGB(20, 20, 20)
+        h.FillTransparency = 0.7
+        h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.Parent = CoreGui
+        return h
+    end)
+    if ok and hl ~= nil then
+        track(plr, hl)
+        playerMap[plr] = { gui = gui, highlight = hl }
+    end
+end
+
+local function removePlayer(plr)
+    if plr == nil then
+        return
+    end
+    local list = created[plr]
+    if list ~= nil then
+        for _, inst in ipairs(list) do
+            pcall(function()
+                if inst ~= nil and inst.Parent ~= nil then
+                    inst:Destroy()
+                end
+            end)
+        end
+        created[plr] = nil
+    end
+    playerMap[plr] = nil
+end
+
+local function enablePlayerESP()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        trackConn(plr.CharacterAdded:Connect(function()
+            if playerESPEnabled == true then
+                task.wait(0.1)
+                makePlayer(plr)
+            end
+        end))
+        trackConn(plr.CharacterRemoving:Connect(function()
+            removePlayer(plr)
+        end))
+        makePlayer(plr)
+    end
+
+    playersAddedConn = trackConn(Players.PlayerAdded:Connect(function(plr)
+        trackConn(plr.CharacterAdded:Connect(function()
+            if playerESPEnabled == true then
+                task.wait(0.1)
+                makePlayer(plr)
+            end
+        end))
+        trackConn(plr.CharacterRemoving:Connect(function()
+            removePlayer(plr)
+        end))
+        makePlayer(plr)
+    end))
+end
+
+local function disablePlayerESP()
+    safeDisconnect(playersAddedConn)
+    playersAddedConn = nil
+
+    for owner, list in pairs(created) do
+        if
+            type(owner) == 'userdata'
+            and owner.IsA ~= nil
+            and owner:IsA('Player')
+        then
+            for _, inst in ipairs(list) do
+                pcall(function()
+                    if inst ~= nil and inst.Parent ~= nil then
+                        inst:Destroy()
+                    end
+                end)
+            end
+            created[owner] = nil
+        end
+    end
+
+    playerMap = {}
+end
+
+-- Cleanup and unload
+local function destruct()
+    clearConnections()
+    for owner, list in pairs(created) do
+        for _, inst in ipairs(list) do
+            pcall(function()
+                if inst ~= nil and inst.Parent ~= nil then
+                    inst:Destroy()
+                end
+            end)
+        end
+    end
+    created = {}
+    evidenceMap = {}
+    playerMap = {}
+    distanceTracked = {}
+    if distanceMasterConn ~= nil then
+        safeDisconnect(distanceMasterConn)
+        distanceMasterConn = nil
+    end
+end
+
+local function fullUnload()
+    destruct()
+    pcall(function()
+        if Window and Window.UI then
+            Window.UI:Destroy()
+        end
+    end)
+    pcall(function()
+        script:Destroy()
+    end)
+end
+
+-- MAIN tab content
+if GuiltySuspect ~= nil then
+    local label =
+        MainTab:CreateLabel('Guilty Suspect: ' .. tostring(GuiltySuspect.Value))
+    if GuiltySuspect.Changed ~= nil then
+        trackConn(GuiltySuspect.Changed:Connect(function()
+            pcall(function()
+                label:Set('Guilty Suspect: ' .. tostring(GuiltySuspect.Value))
+            end)
+        end))
+    end
+else
+    MainTab:CreateLabel('Guilty Suspect: (not found)')
+end
+MainTab:CreateLabel('Made by @wbu.roli')
+
+MainTab:CreateButton({
+    Name = 'Auto Farm [ VERY OP ]',
+    Callback = function()
+        task.spawn(function()
+            -- find Map -> Exit prompt
+            local map = workspace:FindFirstChild('Map')
+            if map == nil then
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'Map not found 🗺️',
+                    Duration = 3,
+                })
+                return
+            end
+            local currentMap = nil
+            for _, v in ipairs(map:GetChildren()) do
+                if v:FindFirstChild('Exit') then
+                    currentMap = v
+                    break
+                end
+            end
+            if currentMap == nil then
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'No active map with Exit 😕',
+                    Duration = 3,
+                })
+                return
+            end
+
+            local exitObj = currentMap:FindFirstChild('Exit')
+            local exitPrompt = nil
+            if exitObj ~= nil then
+                exitPrompt = exitObj:FindFirstChildOfClass('ProximityPrompt')
+            end
+            if exitPrompt == nil then
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'Exit prompt missing 🔍',
+                    Duration = 3,
+                })
+                return
+            end
+
+            pcall(function()
+                exitPrompt.MaxActivationDistance = 555
+            end)
+            task.wait(0.4)
+            pcall(function()
+                fireproximityprompt(exitPrompt)
+            end)
+            Rayfield:Notify({
+                Title = 'AutoFarm',
+                Content = 'Triggered exit prompt ⚡',
+                Duration = 2,
+            })
+
+            -- press Yes via known path
+            local ok, yesBtn = pcall(function()
+                local guiRoot = game:GetService('Players').LocalPlayer.PlayerGui
+                if guiRoot == nil then
+                    return nil
+                end
+                local mainGui = guiRoot:FindFirstChild('MainGui')
+                if mainGui == nil then
+                    return nil
+                end
+                local holder = mainGui:FindFirstChild('Holder')
+                if holder == nil then
+                    return nil
+                end
+                local prompt = holder:FindFirstChild('Prompt')
+                if prompt == nil then
+                    return nil
+                end
+                local exitPromptGui = prompt:FindFirstChild('ExitPrompt')
+                if exitPromptGui == nil then
+                    return nil
+                end
+                local options = exitPromptGui:FindFirstChild('Options')
+                if options == nil then
+                    return nil
+                end
+                return options:FindFirstChild('Yes')
+            end)
+
+            if ok and yesBtn ~= nil then
+                task.wait(0.4)
+                pcall(function()
+                    if
+                        yesBtn:IsA('TextButton') or yesBtn:IsA('ImageButton')
+                    then
+                        yesBtn:Activate()
+                    else
+                        local clickChild = yesBtn:FindFirstChild('Click')
+                        if clickChild ~= nil and clickChild.Fire ~= nil then
+                            clickChild:Fire()
+                        elseif
+                            clickChild ~= nil
+                            and clickChild.FireServer ~= nil
+                        then
+                            clickChild:FireServer()
+                        end
+                    end
+                end)
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'Pressed Yes ✅',
+                    Duration = 2,
+                })
+            else
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = "Couldn't find Yes button — continuing to accuse",
+                    Duration = 3,
+                })
+            end
+
+            -- accuse
+            local Events = RS:FindFirstChild('Events')
+            if Events == nil then
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'Events not found (no accuse) ⚠️',
+                    Duration = 3,
+                })
+                return
+            end
+            local AccuseSuspect = Events:FindFirstChild('AccuseSuspect')
+            if AccuseSuspect == nil then
+                Rayfield:Notify({
+                    Title = 'AutoFarm',
+                    Content = 'AccuseSuspect event missing ⚠️',
+                    Duration = 3,
+                })
+                return
+            end
+            local target = 'Unknown'
+            if GuiltySuspect ~= nil and GuiltySuspect.Value ~= nil then
+                target = tostring(GuiltySuspect.Value)
+            end
+            pcall(function()
+                AccuseSuspect:FireServer(target)
+            end)
+            Rayfield:Notify({
+                Title = 'AutoFarm',
+                Content = 'Accused: ' .. tostring(target) .. ' 💥',
+                Duration = 4,
+            })
+        end)
+    end,
+})
+
+MainTab:CreateLabel(
+    '✨ wbuhub — AutoFarm is buggy. Press Start → AutoFarm → Press Yes fast. ✨'
+)
+
+-- LOCAL PLAYER tab (kept as before but simplified)
+do
+    LocalPlayerTab:CreateSlider({
+        Name = 'WalkSpeed',
+        Range = { 16, 149 },
+        Increment = 1,
+        Suffix = 'Studs',
+        CurrentValue = 16,
+        Callback = function(v)
+            local hum = LocalPlayer.Character
+                and LocalPlayer.Character:FindFirstChild('Humanoid')
+            if hum then
+                pcall(function()
+                    hum.WalkSpeed = v
+                end)
+            end
+        end,
+    })
+
+    LocalPlayerTab:CreateSlider({
+        Name = 'JumpPower',
+        Range = { 50, 300 },
+        Increment = 1,
+        Suffix = 'Studs',
+        CurrentValue = 50,
+        Callback = function(v)
+            local hum = LocalPlayer.Character
+                and LocalPlayer.Character:FindFirstChild('Humanoid')
+            if hum then
+                pcall(function()
+                    hum.UseJumpPower = true
+                    hum.JumpPower = v
+                end)
+            end
+        end,
+    })
+
+    LocalPlayerTab:CreateButton({
+        Name = 'Emote: Dab 🤙',
+        Callback = function()
+            Rayfield:Notify({
+                Title = 'Emote',
+                Content = 'You dabbed. 🤙',
+                Duration = 2,
+            })
+        end,
+    })
+end
+
+-- ===== ESP tab UI (this was the part that wasn't showing — now explicit and simple) =====
+EspTab:CreateToggle({
+    Name = 'Evidence ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        evidenceESPEnabled = v
+        if v == true then
+            enableEvidenceESP()
+        else
+            disableEvidenceESP()
+        end
+    end,
+})
+
+EspTab:CreateToggle({
+    Name = 'Player ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        playerESPEnabled = v
+        if v == true then
+            enablePlayerESP()
+        else
+            disablePlayerESP()
+        end
+    end,
+})
+
+EspTab:CreateToggle({
+    Name = 'Show Suspect on Evidence',
+    CurrentValue = false,
+    Callback = function(v)
+        showSuspect = v
+        if evidenceESPEnabled == true then
+            disableEvidenceESP()
+            enableEvidenceESP()
+        end
+    end,
+})
+
+-- ===== Game Values tab UI (guaranteed to display) =====
+do
+    local gameValuesList = {
+        'GadgetPickingDone',
+        'GadgetPickingTimeLeft',
+        'GadgetRemainder',
+        'GroupLoaded',
+        'GroupSize',
+        'GuiltySuspect',
+        'HalloweenEnabled',
+        'HalloweenEventEnabled',
+        'Host',
+        'HostPickedMap',
+        'MapFolder',
+        'MapLoaded',
+        'SceneName',
+        'SelectedMapName',
+        'ServerType',
+        'VotesForExit',
+    }
+
+    local labels = {}
+
+    local function createOrUpdateLabel(name, value)
+        local text = name .. ': ' .. tostring(value)
+        if labels[name] == nil then
+            labels[name] = GameValuesTab:CreateLabel(text)
+        else
+            pcall(function()
+                labels[name]:Set(text)
+            end)
+        end
+    end
+
+    ValuesFolder = ValuesFolder or RS:FindFirstChild('Values')
+    for _, name in ipairs(gameValuesList) do
+        local val = nil
+        if ValuesFolder ~= nil then
+            val = ValuesFolder:FindFirstChild(name)
+        end
+        if val ~= nil then
+            createOrUpdateLabel(name, val.Value)
+            if val.Changed ~= nil then
+                trackConn(val.Changed:Connect(function()
+                    createOrUpdateLabel(name, val.Value)
+                end))
+            end
+        else
+            createOrUpdateLabel(name, '(not found)')
+            -- watch for Values folder later
+            trackConn(RS.ChildAdded:Connect(function(child)
+                if child ~= nil and child.Name == 'Values' then
+                    local v = child:FindFirstChild(name)
+                    if v ~= nil then
+                        createOrUpdateLabel(name, v.Value)
+                        if v.Changed ~= nil then
+                            trackConn(v.Changed:Connect(function()
+                                createOrUpdateLabel(name, v.Value)
+                            end))
+                        end
+                    end
+                end
+            end))
+        end
+    end
+end
+
+-- SETTINGS tab (explicit)
+SettingsTab:CreateButton({
+    Name = 'Destruct (Cleanup ESP)',
+    Callback = function()
+        destruct()
+        Rayfield:Notify({
+            Title = 'Cleanup',
+            Content = 'ESP cleaned up ✨',
+            Duration = 2,
+        })
+    end,
+})
+SettingsTab:CreateButton({
+    Name = 'Unload Script (Full Destruct)',
+    Callback = fullUnload,
+})
+
+-- Final message
+MainTab:CreateLabel('🌙 Enjoy — wbuhub v1.0 — built for chaos & memes')
+
+print(
+    '[wbuhub] Thank you for Using WBUHUB, Join our Discord: https://discord.gg/5ARTQYGvnX'
+)
