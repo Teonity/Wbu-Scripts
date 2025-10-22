@@ -1,9 +1,3 @@
--- wbuhub - AutoFarm Script with Rayfield GUI
--- Clean and minimalistic design with 3 tabs for easy navigation
--- Autofarm: Controls and info for farming
--- ESP: Customizable visual aids for evidence and players
--- Game Values: Real-time display of key game stats
--- Load Rayfield
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = 'wbuhub - keyless',
@@ -19,7 +13,7 @@ local Window = Rayfield:CreateWindow({
         Invite = '5ARTQYGvnX',
         RememberJoins = true,
     },
-    KeySystem = true,
+    KeySystem = false,
 })
 -- Tabs
 local AutofarmTab = Window:CreateTab('Autofarm')
