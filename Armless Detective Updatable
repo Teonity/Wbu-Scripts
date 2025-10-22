@@ -1,993 +1,423 @@
+-- wbuhub - AutoFarm Script with Rayfield GUI
+-- Clean and minimalistic design with 3 tabs for easy navigation
+-- Autofarm: Controls and info for farming
+-- ESP: Customizable visual aids for evidence and players
+-- Game Values: Real-time display of key game stats
+-- Load Rayfield
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
--- Window
 local Window = Rayfield:CreateWindow({
-    Name = 'Armless Detective - wbuhub keyless',
-    LoadingTitle = 'Armless Detective - wbuhub',
-    LoadingSubtitle = 'Made by wburoli',
-    ConfigurationSaving = { Enabled = true },
+    Name = 'wbuhub - keyless',
+    LoadingTitle = 'wbuhub - keyless',
+    LoadingSubtitle = 'by wbuhub',
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = 'wbuhub',
+        FileName = 'config',
+    },
+    Discord = {
+        Enabled = true,
+        Invite = '5ARTQYGvnX',
+        RememberJoins = true,
+    },
+    KeySystem = false,
 })
-
--- Tabs (removed Gives tab)
-local MainTab = Window:CreateTab('Main', 4483362458)
-local LocalPlayerTab = Window:CreateTab('Local Player', 4483362458)
-local EspTab = Window:CreateTab('ESP', 4483362458)
-local GameValuesTab = Window:CreateTab('Game Values', 4483362458)
-local SettingsTab = Window:CreateTab('Settings', 4483362458)
-
--- Services
+-- Tabs
+local AutofarmTab = Window:CreateTab('Autofarm')
+local EspTab = Window:CreateTab('ESP')
+local GameValuesTab = Window:CreateTab('Game Values')
+-- =======================
+-- SETTINGS
+-- =======================
+local SETTINGS = {
+    DiscordURL = 'https://discord.gg/5ARTQYGvnX',
+    TimerUpdateRate = 0.5,
+    SettingsFile = 'wbuhub-sets.txt',
+}
+-- =======================
+-- SERVICES
+-- =======================
 local Players = game:GetService('Players')
 local RS = game:GetService('ReplicatedStorage')
-local RunService = game:GetService('RunService')
-local CoreGui = game:GetService('CoreGui')
-local TweenService = game:GetService('TweenService')
-local UIS = game:GetService('UserInputService')
-
+local Workspace = game:GetService('Workspace')
+local StarterGui = game:GetService('StarterGui')
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild('PlayerGui', 10)
-
--- Basic game objects
-local EvidenceFolder = workspace:WaitForChild('ActiveEvidence', 5)
-local ValuesFolder = RS:WaitForChild('Values', 5)
-local GuiltySuspect = ValuesFolder
-    and ValuesFolder:FindFirstChild('GuiltySuspect')
-
--- State
-local created = {} -- created[owner] = {instances...}
-local connections = {} -- connection list
-local distanceTracked = {} -- adornee -> {label = TextLabel, baseText = string}
-local distanceMasterConn = nil
-
-local evidenceESPEnabled = false
-local playerESPEnabled = false
-local showSuspect = false
-
--- New states for added features
-local flyEnabled = false
-local noclipEnabled = false
-local godmodeEnabled = false
-local infiniteJumpEnabled = false
-local autoCollectEnabled = false
-local speedBoost = 1
-
--- Helpers
-local function track(owner, inst)
-    owner = owner or '__global'
-    created[owner] = created[owner] or {}
-    table.insert(created[owner], inst)
-    return inst
+local camera = Workspace.CurrentCamera
+local RunService = game:GetService('RunService')
+-- =======================
+-- SAFETY CHECK
+-- =======================
+local valuesFolder = RS:FindFirstChild('Values')
+local guiltySuspect = valuesFolder
+    and valuesFolder:FindFirstChild('GuiltySuspect')
+if not guiltySuspect then
+    pcall(function()
+        StarterGui:SetCore('SendNotification', {
+            Title = 'wbuhub - Non Supported Game',
+            Text = 'This game is not supported by wbuhub AutoFarm.',
+            Duration = 5,
+        })
+    end)
+    warn('[wbuhub] Non supported game. Script aborted.')
+    return
 end
-
-local function trackConn(conn)
-    if conn then
-        table.insert(connections, conn)
+-- =======================
+-- LOAD SAVED SETTINGS
+-- =======================
+local autoExecEnabled = false
+if isfile and readfile and writefile then
+    if isfile(SETTINGS.SettingsFile) then
+        local content = readfile(SETTINGS.SettingsFile)
+        if content:match('AutoExec%(true%)') then
+            autoExecEnabled = true
+        end
+    else
+        writefile(
+            SETTINGS.SettingsFile,
+            '-- wbuhub loader settings\n-- https://discord.gg/5ARTQYGvnX\nAutoExec(false)'
+        )
     end
-    return conn
+else
+    warn('[wbuhub] File functions not available. AutoExec default to false.')
 end
-
-local function safeDisconnect(conn)
-    if conn then
-        conn:Disconnect()
+local function saveAutoExec()
+    if writefile then
+        writefile(
+            SETTINGS.SettingsFile,
+            '-- wbuhub loader settings\n-- https://discord.gg/5ARTQYGvnX\nAutoExec('
+                .. tostring(autoExecEnabled)
+                .. ')'
+        )
     end
 end
-
-local function clearConnections()
-    for _, c in connections do
-        safeDisconnect(c)
-    end
-    connections = {}
-end
-
-local function isBasePart(obj)
-    return obj and obj:IsA('BasePart')
-end
-
--- Billboard builder (added fun color pulse)
-local function createBillboard(adornee, baseText, size, color)
-    if not adornee or not adornee.Parent then
-        return
-    end
-
-    local gui = Instance.new('BillboardGui')
-    gui.Name = 'wbuhub_Billboard'
-    gui.Adornee = adornee
-    gui.Size = size or UDim2.new(0, 120, 0, 25)
-    gui.StudsOffset = Vector3.new(0, 3, 0)
-    gui.AlwaysOnTop = true
-    gui.MaxDistance = 500
-    gui.Parent = PlayerGui
-
-    local charm = Instance.new('ImageLabel')
-    charm.Name = 'wbuhub_Charm'
-    charm.Size = UDim2.new(1.2, 0, 1.5, 0)
-    charm.Position = UDim2.new(-0.1, 0, -0.25, 0)
-    charm.BackgroundTransparency = 1
-    charm.Image = 'rbxassetid://5028857472'
-    charm.ImageColor3 = color or Color3.fromRGB(255, 200, 80)
-    charm.ImageTransparency = 0.45
-    charm.ZIndex = 0
-    charm.Parent = gui
-
-    local label = Instance.new('TextLabel')
-    label.Name = 'wbuhub_Label'
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.new(1, 1, 1)
-    label.TextStrokeTransparency = 0.4
-    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-    label.Font = Enum.Font.GothamBold
-    label.TextScaled = true
-    label.ZIndex = 1
-    label.Text = baseText or ''
-    label.Parent = gui
-
-    -- Pulse animation + color fun
-    task.spawn(function()
-        while gui.Parent do
-            for i = 0.35, 0.6, 0.02 do
-                if not charm.Parent then
-                    break
+-- =======================
+-- AUTOFARM TAB
+-- =======================
+local moneyLabel = AutofarmTab:CreateLabel('Money: 0')
+local candyLabel = AutofarmTab:CreateLabel('Candy: 0')
+local timerLabel = AutofarmTab:CreateLabel('Timer: 0:00:00')
+local guiltyLabel = AutofarmTab:CreateLabel('Guilty Suspect: Unknown')
+local AutoFarmToggle = AutofarmTab:CreateToggle({
+    Name = 'AutoFarm',
+    CurrentValue = autoExecEnabled,
+    Flag = 'AutoFarmToggle',
+    Callback = function(Value)
+        autoExecEnabled = Value
+        saveAutoExec()
+    end,
+})
+local AutoLobbyButton = AutofarmTab:CreateButton({
+    Name = 'Auto Lobby',
+    Callback = function()
+        runLobbyRoutine()
+    end,
+})
+local AutoGuessButton = AutofarmTab:CreateButton({
+    Name = 'Auto Guess',
+    Callback = function()
+        runAutoFarmOnce()
+    end,
+})
+-- Update loop for autofarm labels
+spawn(function()
+    local startTime = tick()
+    while true do
+        local elapsed = tick() - startTime
+        local h = math.floor(elapsed / 3600)
+        local m = math.floor((elapsed % 3600) / 60)
+        local s = math.floor(elapsed % 60)
+        timerLabel:Set(string.format('Timer: %d:%02d:%02d', h, m, s))
+        local coins, candy = 0, 0
+        local gui = LocalPlayer.PlayerGui:FindFirstChild('MainGui')
+        if gui then
+            local holder = gui:FindFirstChild('Holder')
+            local top = holder and holder:FindFirstChild('Top')
+            local inner = top and top:FindFirstChild('Holder')
+            if inner then
+                local c = inner:FindFirstChild('Coins')
+                local ca = inner:FindFirstChild('Candy')
+                if c and c:FindFirstChild('Amount') then
+                    coins = tonumber(c.Amount.Text:gsub(',', '')) or 0
                 end
-                charm.ImageTransparency = i
-                charm.ImageColor3 = Color3.fromHSV((tick() % 5) / 5, 1, 1) -- Rainbow fun!
-                task.wait(0.04)
-            end
-            for i = 0.6, 0.35, -0.02 do
-                if not charm.Parent then
-                    break
+                if ca and ca:FindFirstChild('Amount') then
+                    candy = tonumber(ca.Amount.Text:gsub(',', '')) or 0
                 end
-                charm.ImageTransparency = i
-                charm.ImageColor3 = Color3.fromHSV((tick() % 5) / 5, 1, 1)
-                task.wait(0.04)
             end
-            task.wait(0.05)
+        end
+        moneyLabel:Set('Money: ' .. tostring(coins))
+        candyLabel:Set('Candy: ' .. tostring(candy))
+        local suspect = guiltySuspect and guiltySuspect.Value or 'Unknown'
+        guiltyLabel:Set('Guilty Suspect: ' .. tostring(suspect))
+        task.wait(SETTINGS.TimerUpdateRate)
+    end
+end)
+-- =======================
+-- ESP TAB
+-- =======================
+local evidenceEspEnabled = false
+local playerEspEnabled = false
+local espColor = Color3.fromRGB(255, 0, 0)
+local espTransparency = 0.5
+local espThickness = 2
+local showNames = true
+local showDistance = true
+local showHealth = true
+local maxDistance = 1000
+local EvidenceEspToggle = EspTab:CreateToggle({
+    Name = 'Evidence ESP',
+    CurrentValue = false,
+    Flag = 'EvidenceEspToggle',
+    Callback = function(Value)
+        evidenceEspEnabled = Value
+    end,
+})
+local PlayerEspToggle = EspTab:CreateToggle({
+    Name = 'Player ESP',
+    CurrentValue = false,
+    Flag = 'PlayerEspToggle',
+    Callback = function(Value)
+        playerEspEnabled = Value
+    end,
+})
+local EspColorPicker = EspTab:CreateColorPicker({
+    Name = 'ESP Color',
+    Color = Color3.fromRGB(255, 0, 0),
+    Flag = 'EspColorPicker',
+    Callback = function(Color)
+        espColor = Color
+    end,
+})
+local EspTransparencySlider = EspTab:CreateSlider({
+    Name = 'ESP Transparency',
+    Range = { 0, 1 },
+    Increment = 0.1,
+    CurrentValue = 0.5,
+    Flag = 'EspTransparencySlider',
+    Callback = function(Value)
+        espTransparency = Value
+    end,
+})
+local EspThicknessSlider = EspTab:CreateSlider({
+    Name = 'ESP Thickness',
+    Range = { 1, 5 },
+    Increment = 1,
+    CurrentValue = 2,
+    Flag = 'EspThicknessSlider',
+    Callback = function(Value)
+        espThickness = Value
+    end,
+})
+local ShowNamesToggle = EspTab:CreateToggle({
+    Name = 'Show Names',
+    CurrentValue = true,
+    Flag = 'ShowNamesToggle',
+    Callback = function(Value)
+        showNames = Value
+    end,
+})
+local ShowDistanceToggle = EspTab:CreateToggle({
+    Name = 'Show Distance',
+    CurrentValue = true,
+    Flag = 'ShowDistanceToggle',
+    Callback = function(Value)
+        showDistance = Value
+    end,
+})
+local ShowHealthToggle = EspTab:CreateToggle({
+    Name = 'Show Health',
+    CurrentValue = true,
+    Flag = 'ShowHealthToggle',
+    Callback = function(Value)
+        showHealth = Value
+    end,
+})
+local MaxDistanceSlider = EspTab:CreateSlider({
+    Name = 'Max Distance',
+    Range = { 100, 5000 },
+    Increment = 100,
+    CurrentValue = 1000,
+    Flag = 'MaxDistanceSlider',
+    Callback = function(Value)
+        maxDistance = Value
+    end,
+})
+-- ESP Implementation
+local evidenceEsps = {}
+local playerEsps = {}
+local function createEsp(isPlayer)
+    local box = Drawing.new('Square')
+    box.Visible = false
+    box.Color = espColor
+    box.Thickness = espThickness
+    box.Transparency = 1 - espTransparency
+    box.Filled = false
+    local nameText = Drawing.new('Text')
+    nameText.Visible = false
+    nameText.Color = espColor
+    nameText.Size = 16
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.OutlineColor = Color3.fromRGB(0, 0, 0)
+    local distanceText = Drawing.new('Text')
+    distanceText.Visible = false
+    distanceText.Color = espColor
+    distanceText.Size = 14
+    distanceText.Center = true
+    distanceText.Outline = true
+    distanceText.OutlineColor = Color3.fromRGB(0, 0, 0)
+    local healthText = Drawing.new('Text')
+    healthText.Visible = false
+    healthText.Color = espColor
+    healthText.Size = 14
+    healthText.Center = true
+    healthText.Outline = true
+    healthText.OutlineColor = Color3.fromRGB(0, 0, 0)
+    return {
+        box = box,
+        name = nameText,
+        distance = distanceText,
+        health = healthText,
+    }
+end
+-- For evidence
+local activeEvidence = Workspace:WaitForChild('ActiveEvidence', 10)
+if activeEvidence then
+    activeEvidence.ChildAdded:Connect(function(child)
+        if evidenceEspEnabled and child:IsA('BasePart') then
+            evidenceEsps[child] = createEsp(false)
         end
     end)
-
-    track(adornee, gui)
-    return gui, label, charm
-end
-
--- Distance updater
-local function ensureDistanceMaster()
-    if distanceMasterConn then
-        return
-    end
-    distanceMasterConn = trackConn(RunService.RenderStepped:Connect(function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild('HumanoidRootPart')
-        if not hrp then
-            return
+    activeEvidence.ChildRemoved:Connect(function(child)
+        if evidenceEsps[child] then
+            evidenceEsps[child].box:Remove()
+            evidenceEsps[child].name:Remove()
+            evidenceEsps[child].distance:Remove()
+            evidenceEsps[child].health:Remove()
+            evidenceEsps[child] = nil
         end
-        for adornee, info in distanceTracked do
-            if
-                adornee
-                and adornee.Position
-                and info.label
-                and info.baseText
-            then
-                local dist =
-                    math.floor((hrp.Position - adornee.Position).Magnitude)
-                info.label.Text =
-                    string.format('%s [%d] 🚀', info.baseText, dist) -- Fun emoji
-            end
-        end
-    end))
+    end)
 end
-
-local function attachDistance(label, adornee, baseText)
-    if not label or not adornee then
-        return
-    end
-    distanceTracked[adornee] = { label = label, baseText = baseText }
-    ensureDistanceMaster()
-end
-
--- Evidence ESP (added auto refresh on suspect change)
-local evidenceMap = {} -- part -> { gui=..., highlight=... }
-local evidenceAddedConn = nil
-local evidenceRemovingConn = nil
-
-local function makeEvidence(part)
-    if not isBasePart(part) or evidenceMap[part] then
-        return
-    end
-
-    local text = part.Name
-    if showSuspect and GuiltySuspect and GuiltySuspect.Value then
-        text = text .. ' | ' .. GuiltySuspect.Value .. ' 😈'
-    end
-
-    local gui, label = createBillboard(
-        part,
-        text,
-        UDim2.new(0, 120, 0, 25),
-        Color3.fromRGB(255, 200, 80)
-    )
-    if not gui then
-        return
-    end
-    if label then
-        attachDistance(label, part, text)
-    end
-
-    local hl = Instance.new('Highlight')
-    hl.Name = 'wbuhub_EvidenceHL'
-    hl.Adornee = part
-    hl.FillColor = Color3.fromRGB(255, 220, 80)
-    hl.OutlineColor = Color3.fromRGB(30, 30, 30)
-    hl.FillTransparency = 0.6
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = CoreGui
-    track(part, hl)
-
-    evidenceMap[part] = { gui = gui, highlight = hl }
-end
-
-local function removeEvidence(part)
-    if not part then
-        return
-    end
-    local list = created[part]
-    if list then
-        for _, inst in list do
-            if inst and inst.Parent then
-                inst:Destroy()
+-- For players
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function(char)
+            if playerEspEnabled then
+                playerEsps[player] = createEsp(true)
             end
-        end
-        created[part] = nil
-    end
-    evidenceMap[part] = nil
-    distanceTracked[part] = nil
-end
-
-local function enableEvidenceESP()
-    if not EvidenceFolder then
-        Rayfield:Notify({
-            Title = 'ESP',
-            Content = 'ActiveEvidence not found 😢',
-            Duration = 3,
-        })
-        return
-    end
-
-    local destroyedLib = EvidenceFolder:FindFirstChild('DestroyedLibrary')
-
-    for _, d in EvidenceFolder:GetDescendants() do
-        if
-            isBasePart(d)
-            and not (destroyedLib and d:IsDescendantOf(destroyedLib))
-        then
-            makeEvidence(d)
-        end
-    end
-
-    evidenceAddedConn =
-        trackConn(EvidenceFolder.DescendantAdded:Connect(function(d)
-            if
-                isBasePart(d)
-                and not (destroyedLib and d:IsDescendantOf(destroyedLib))
-            then
-                makeEvidence(d)
-            end
-        end))
-
-    evidenceRemovingConn =
-        trackConn(EvidenceFolder.DescendantRemoving:Connect(removeEvidence))
-
-    -- Auto refresh on suspect change
-    if GuiltySuspect then
-        trackConn(GuiltySuspect.Changed:Connect(function()
-            if evidenceESPEnabled then
-                disableEvidenceESP()
-                enableEvidenceESP()
-            end
-        end))
-    end
-end
-
-local function disableEvidenceESP()
-    safeDisconnect(evidenceAddedConn)
-    evidenceAddedConn = nil
-    safeDisconnect(evidenceRemovingConn)
-    evidenceRemovingConn = nil
-
-    for owner, list in created do
-        if owner ~= '__global' then
-            for _, inst in list do
-                if inst and inst.Parent then
-                    inst:Destroy()
-                end
-            end
-            created[owner] = nil
-        end
-    end
-
-    evidenceMap = {}
-    distanceTracked = {}
-end
-
--- Player ESP (added friend highlight color change)
-local playerMap = {} -- player -> { gui=..., highlight=... }
-local playersAddedConn = nil
-
-local function makePlayer(plr)
-    if not plr or plr == LocalPlayer or playerMap[plr] then
-        return
-    end
-    local char = plr.Character
-    if not char then
-        return
-    end
-    local hrp = char:FindFirstChild('HumanoidRootPart')
-    if not hrp then
-        return
-    end
-
-    local baseText = plr.Name
-    local color = Color3.fromRGB(80, 180, 255)
-    if LocalPlayer:IsFriendsWith(plr.UserId) then
-        baseText = baseText .. ' | FRIEND 👯'
-        color = Color3.fromRGB(0, 255, 0) -- Green for friends
-    end
-
-    local gui, label =
-        createBillboard(hrp, baseText, UDim2.new(0, 100, 0, 20), color)
-    if not gui then
-        return
-    end
-    if label then
-        attachDistance(label, hrp, baseText)
-    end
-
-    local hl = Instance.new('Highlight')
-    hl.Name = 'wbuhub_PlayerHL'
-    hl.Adornee = char
-    hl.FillColor = color
-    hl.OutlineColor = Color3.fromRGB(20, 20, 20)
-    hl.FillTransparency = 0.7
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = CoreGui
-    track(plr, hl)
-
-    playerMap[plr] = { gui = gui, highlight = hl }
-end
-
-local function removePlayer(plr)
-    if not plr then
-        return
-    end
-    local list = created[plr]
-    if list then
-        for _, inst in list do
-            if inst and inst.Parent then
-                inst:Destroy()
-            end
-        end
-        created[plr] = nil
-    end
-    playerMap[plr] = nil
-end
-
-local function enablePlayerESP()
-    for _, plr in Players:GetPlayers() do
-        trackConn(plr.CharacterAdded:Connect(function()
-            if playerESPEnabled then
-                task.wait(0.1)
-                makePlayer(plr)
-            end
-        end))
-        trackConn(plr.CharacterRemoving:Connect(removePlayer))
-        makePlayer(plr)
-    end
-
-    playersAddedConn = trackConn(Players.PlayerAdded:Connect(function(plr)
-        trackConn(plr.CharacterAdded:Connect(function()
-            if playerESPEnabled then
-                task.wait(0.1)
-                makePlayer(plr)
-            end
-        end))
-        trackConn(plr.CharacterRemoving:Connect(removePlayer))
-        makePlayer(plr)
-    end))
-end
-
-local function disablePlayerESP()
-    safeDisconnect(playersAddedConn)
-    playersAddedConn = nil
-
-    for owner, list in created do
-        if typeof(owner) == 'Instance' and owner:IsA('Player') then
-            for _, inst in list do
-                if inst and inst.Parent then
-                    inst:Destroy()
-                end
-            end
-            created[owner] = nil
-        end
-    end
-
-    playerMap = {}
-end
-
--- Cleanup and unload
-local function destruct()
-    clearConnections()
-    for _, list in created do
-        for _, inst in list do
-            if inst and inst.Parent then
-                inst:Destroy()
-            end
-        end
-    end
-    created = {}
-    evidenceMap = {}
-    playerMap = {}
-    distanceTracked = {}
-    safeDisconnect(distanceMasterConn)
-    distanceMasterConn = nil
-    -- Reset new features
-    flyEnabled = false
-    noclipEnabled = false
-    godmodeEnabled = false
-    infiniteJumpEnabled = false
-    autoCollectEnabled = false
-    speedBoost = 1
-end
-
-local function fullUnload()
-    destruct()
-    if Window then
-        Window:Destroy()
-    end
-    script:Destroy()
-end
-
--- MAIN tab (replaced Teleport to Suspect with Random Player TP + solo check)
-if GuiltySuspect then
-    local label = MainTab:CreateLabel(
-        'Guilty Suspect: ' .. GuiltySuspect.Value .. ' 😈'
-    )
-    trackConn(GuiltySuspect.Changed:Connect(function()
-        label:Set('Guilty Suspect: ' .. GuiltySuspect.Value .. ' 😈')
-    end))
-else
-    MainTab:CreateLabel('Guilty Suspect: (not found) 🤔')
-end
-MainTab:CreateLabel('Made by @wbu.roli - Epic Edition! 🌟')
-
-MainTab:CreateButton({
-    Name = 'Auto Farm [ VERY OP ] 💥',
-    Callback = function()
-        task.spawn(function()
-            local map = workspace:FindFirstChild('Map')
-            if not map then
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'Map not found 🗺️',
-                    Duration = 3,
-                })
-                return
-            end
-            local currentMap
-            for _, v in map:GetChildren() do
-                if v:FindFirstChild('Exit') then
-                    currentMap = v
-                    break
-                end
-            end
-            if not currentMap then
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'No active map with Exit 😕',
-                    Duration = 3,
-                })
-                return
-            end
-
-            local exitObj = currentMap:FindFirstChild('Exit')
-            local exitPrompt = exitObj
-                and exitObj:FindFirstChildOfClass('ProximityPrompt')
-            if not exitPrompt then
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'Exit prompt missing 🔍',
-                    Duration = 3,
-                })
-                return
-            end
-
-            exitPrompt.MaxActivationDistance = 555
-            task.wait(0.2)
-            fireproximityprompt(exitPrompt)
-            Rayfield:Notify({
-                Title = 'AutoFarm',
-                Content = 'Triggered exit prompt ⚡',
-                Duration = 2,
-            })
-
-            -- Improved loop for Yes button
-            local yesBtn
-            for i = 1, 50 do -- Longer try
-                task.wait(0.05)
-                yesBtn = PlayerGui:FindFirstChild('MainGui', true)
-                    and PlayerGui.MainGui:FindFirstChild('Holder', true)
-                    and PlayerGui.MainGui.Holder:FindFirstChild('Prompt', true)
-                    and PlayerGui.MainGui.Holder.Prompt:FindFirstChild(
-                        'ExitPrompt',
-                        true
-                    )
-                    and PlayerGui.MainGui.Holder.Prompt.ExitPrompt:FindFirstChild(
-                        'Options',
-                        true
-                    )
-                    and PlayerGui.MainGui.Holder.Prompt.ExitPrompt.Options:FindFirstChild(
-                        'Yes'
-                    )
-                if yesBtn then
-                    break
-                end
-            end
-
-            if yesBtn then
-                if yesBtn:IsA('TextButton') or yesBtn:IsA('ImageButton') then
-                    yesBtn:Activate()
-                else
-                    local clickChild = yesBtn:FindFirstChild('Click')
-                    if clickChild then
-                        if clickChild.FireServer then
-                            clickChild:FireServer()
-                        elseif clickChild.Fire then
-                            clickChild:Fire()
-                        end
-                    end
-                end
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'Pressed Yes ✅',
-                    Duration = 2,
-                })
-            else
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = "Couldn't find Yes button - try manually! 😞",
-                    Duration = 3,
-                })
-            end
-
-            -- Accuse with correct args unpack
-            local Events = RS:FindFirstChild('Events')
-            if not Events then
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'Events not found ⚠️',
-                    Duration = 3,
-                })
-                return
-            end
-            local AccuseSuspect = Events:FindFirstChild('AccuseSuspect')
-            if not AccuseSuspect then
-                Rayfield:Notify({
-                    Title = 'AutoFarm',
-                    Content = 'AccuseSuspect event missing ⚠️',
-                    Duration = 3,
-                })
-                return
-            end
-            local target = GuiltySuspect and GuiltySuspect.Value or 'Unknown'
-            local args = { target }
-            task.wait(1) -- Delay for timing
-            pcall(function()
-                AccuseSuspect:FireServer(unpack(args))
-            end)
-            Rayfield:Notify({
-                Title = 'AutoFarm',
-                Content = 'Accused: ' .. target .. ' 💥 Boom!',
-                Duration = 4,
-            })
         end)
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = 'Auto Collect Evidence 🧲',
-    CurrentValue = false,
-    Callback = function(v)
-        autoCollectEnabled = v
-        if v then
-            task.spawn(function()
-                while autoCollectEnabled do
-                    if EvidenceFolder then
-                        for _, ev in EvidenceFolder:GetDescendants() do
-                            if isBasePart(ev) then
-                                local char = LocalPlayer.Character
-                                local hrp = char
-                                    and char:FindFirstChild('HumanoidRootPart')
-                                if hrp then
-                                    hrp.CFrame = ev.CFrame
-                                    task.wait(0.1)
-                                    fireproximityprompt(
-                                        ev:FindFirstChildOfClass(
-                                            'ProximityPrompt'
-                                        )
-                                    )
-                                end
-                            end
-                        end
-                    end
-                    task.wait(1)
-                end
-            end)
-            Rayfield:Notify({
-                Title = 'Auto Collect',
-                Content = 'Collecting all evidence like a boss! 🧲',
-                Duration = 3,
-            })
-        else
-            Rayfield:Notify({
-                Title = 'Auto Collect',
-                Content = 'Stopped collecting. 😴',
-                Duration = 3,
-            })
-        end
-    end,
-})
-
-MainTab:CreateButton({
-    Name = 'Teleport to Random Evidence 🚀',
-    Callback = function()
-        if EvidenceFolder then
-            local evidences = {}
-            for _, ev in EvidenceFolder:GetDescendants() do
-                if isBasePart(ev) then
-                    table.insert(evidences, ev)
-                end
-            end
-            if #evidences > 0 then
-                local randomEv = evidences[math.random(1, #evidences)]
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild('HumanoidRootPart')
-                if hrp then
-                    hrp.CFrame = randomEv.CFrame + Vector3.new(0, 5, 0)
-                    Rayfield:Notify({
-                        Title = 'Teleport',
-                        Content = 'Zapped to evidence! ✨',
-                        Duration = 2,
-                    })
-                end
-            else
-                Rayfield:Notify({
-                    Title = 'Teleport',
-                    Content = 'No evidence found! 🤷',
-                    Duration = 3,
-                })
-            end
-        end
-    end,
-})
-
-MainTab:CreateButton({
-    Name = 'Teleport to Random Player 👥',
-    Callback = function()
-        local allPlayers = Players:GetPlayers()
-        if #allPlayers <= 1 then
-            Rayfield:Notify({
-                Title = 'Teleport',
-                Content = "You can't teleport to yourself, dum dum! 😜 Alone in the game?",
-                Duration = 4,
-            })
-            return
-        end
-        local otherPlayers = {}
-        for _, plr in allPlayers do
-            if plr ~= LocalPlayer then
-                table.insert(otherPlayers, plr)
-            end
-        end
-        if #otherPlayers > 0 then
-            local randomPlr = otherPlayers[math.random(1, #otherPlayers)]
-            local char = randomPlr.Character
-            local hrp = char and char:FindFirstChild('HumanoidRootPart')
-            if hrp then
-                local localChar = LocalPlayer.Character
-                local localHrp = localChar
-                    and localChar:FindFirstChild('HumanoidRootPart')
-                if localHrp then
-                    localHrp.CFrame = hrp.CFrame + Vector3.new(0, 5, 0)
-                    Rayfield:Notify({
-                        Title = 'Teleport',
-                        Content = 'Teleported to '
-                            .. randomPlr.Name
-                            .. '! Surprise! 😈',
-                        Duration = 3,
-                    })
-                end
-            end
-        else
-            Rayfield:Notify({
-                Title = 'Teleport',
-                Content = 'No other players found! 🤔',
-                Duration = 3,
-            })
-        end
-    end,
-})
-
-MainTab:CreateLabel(
-    '✨ wbuhub - Farm like a pro! Press AutoFarm after start. Accuse fixed! ✨'
-)
-
--- LOCAL PLAYER tab (added Fly, Noclip, Godmode, Infinite Jump, Speed Boost)
-local currentWalkSpeed = 16
-local currentJumpPower = 50
-
-local function applyLocalPlayerMods()
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChild('Humanoid')
-    if hum then
-        hum.WalkSpeed = currentWalkSpeed * speedBoost
-        hum.UseJumpPower = true
-        hum.JumpPower = currentJumpPower
-        if godmodeEnabled then
-            hum.Health = hum.MaxHealth
+        if player.Character and playerEspEnabled then
+            playerEsps[player] = createEsp(true)
         end
     end
 end
-
-LocalPlayerTab:CreateSlider({
-    Name = 'WalkSpeed 🏃',
-    Range = { 16, 149 },
-    Increment = 1,
-    Suffix = 'Studs',
-    CurrentValue = 16,
-    Callback = function(v)
-        currentWalkSpeed = v
-        applyLocalPlayerMods()
-    end,
-})
-
-LocalPlayerTab:CreateSlider({
-    Name = 'JumpPower 🦘',
-    Range = { 50, 300 },
-    Increment = 1,
-    Suffix = 'Studs',
-    CurrentValue = 50,
-    Callback = function(v)
-        currentJumpPower = v
-        applyLocalPlayerMods()
-    end,
-})
-
-LocalPlayerTab:CreateSlider({
-    Name = 'Speed Boost Multiplier ⚡',
-    Range = { 1, 10 },
-    Increment = 0.5,
-    Suffix = 'x',
-    CurrentValue = 1,
-    Callback = function(v)
-        speedBoost = v
-        applyLocalPlayerMods()
-        Rayfield:Notify({
-            Title = 'Speed Boost',
-            Content = 'Zooming at ' .. v .. 'x speed! 🏎️',
-            Duration = 2,
-        })
-    end,
-})
-
-LocalPlayerTab:CreateToggle({
-    Name = 'Fly ✈️',
-    CurrentValue = false,
-    Callback = function(v)
-        flyEnabled = v
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild('HumanoidRootPart')
-        if not hrp then
-            return
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        if playerEspEnabled then
+            playerEsps[player] = createEsp(true)
         end
-        if v then
-            local flyConn
-            flyConn = trackConn(RunService.RenderStepped:Connect(function()
-                if flyEnabled then
-                    hrp.Velocity = Vector3.new(0, 50, 0) -- Basic fly up
-                    if UIS:IsKeyDown(Enum.KeyCode.W) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(0, 0, -1)
-                    end
-                    if UIS:IsKeyDown(Enum.KeyCode.S) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(0, 0, 1)
-                    end
-                    if UIS:IsKeyDown(Enum.KeyCode.A) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(-1, 0, 0)
-                    end
-                    if UIS:IsKeyDown(Enum.KeyCode.D) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(1, 0, 0)
-                    end
-                    if UIS:IsKeyDown(Enum.KeyCode.Space) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(0, 1, 0)
-                    end
-                    if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
-                        hrp.CFrame = hrp.CFrame * CFrame.new(0, -1, 0)
-                    end
+    end)
+end)
+Players.PlayerRemoving:Connect(function(player)
+    if playerEsps[player] then
+        playerEsps[player].box:Remove()
+        playerEsps[player].name:Remove()
+        playerEsps[player].distance:Remove()
+        playerEsps[player].health:Remove()
+        playerEsps[player] = nil
+    end
+end)
+-- ESP update loop
+spawn(function()
+    while true do
+        for object, esp in pairs(evidenceEsps) do
+            if object then
+                local pos, onScreen =
+                    camera:WorldToViewportPoint(object.Position)
+                local dist = (camera.CFrame.Position - object.Position).Magnitude
+                if onScreen and dist <= maxDistance then
+                    esp.box.Visible = true
+                    local size = 500 / pos.Z
+                    esp.box.Size = Vector2.new(size, size)
+                    esp.box.Position = Vector2.new(
+                        pos.X - esp.box.Size.X / 2,
+                        pos.Y - esp.box.Size.Y / 2
+                    )
+                    esp.box.Color = espColor
+                    esp.box.Transparency = 1 - espTransparency
+                    esp.box.Thickness = espThickness
+                    esp.name.Text = object.Name
+                    esp.name.Position =
+                        Vector2.new(pos.X, pos.Y - esp.box.Size.Y / 2 - 16)
+                    esp.name.Visible = showNames
+                    esp.distance.Text = math.floor(dist) .. 'm'
+                    esp.distance.Position =
+                        Vector2.new(pos.X, pos.Y + esp.box.Size.Y / 2)
+                    esp.distance.Visible = showDistance
+                    esp.health.Visible = false -- No health for evidence
                 else
-                    safeDisconnect(flyConn)
+                    esp.box.Visible = false
+                    esp.name.Visible = false
+                    esp.distance.Visible = false
+                    esp.health.Visible = false
                 end
-            end))
-            Rayfield:Notify({
-                Title = 'Fly',
-                Content = 'Flying high! Use WASD, Space, Ctrl. ✈️',
-                Duration = 3,
-            })
+            end
         end
-    end,
-})
-
-LocalPlayerTab:CreateToggle({
-    Name = 'Noclip 👻',
-    CurrentValue = false,
-    Callback = function(v)
-        noclipEnabled = v
-        if v then
-            local noclipConn
-            noclipConn = trackConn(RunService.Stepped:Connect(function()
-                if noclipEnabled then
-                    local char = LocalPlayer.Character
-                    if char then
-                        for _, part in char:GetDescendants() do
-                            if part:IsA('BasePart') then
-                                part.CanCollide = false
-                            end
+        for player, esp in pairs(playerEsps) do
+            local char = player.Character
+            if char then
+                local hrp = char:FindFirstChild('HumanoidRootPart')
+                local humanoid = char:FindFirstChild('Humanoid')
+                if hrp then
+                    local pos, onScreen =
+                        camera:WorldToViewportPoint(hrp.Position)
+                    local dist = (camera.CFrame.Position - hrp.Position).Magnitude
+                    if onScreen and dist <= maxDistance then
+                        esp.box.Visible = true
+                        local size = 1000 / pos.Z
+                        esp.box.Size = Vector2.new(size * 0.5, size)
+                        esp.box.Position = Vector2.new(
+                            pos.X - esp.box.Size.X / 2,
+                            pos.Y - esp.box.Size.Y / 2
+                        )
+                        esp.box.Color = espColor
+                        esp.box.Transparency = 1 - espTransparency
+                        esp.box.Thickness = espThickness
+                        esp.name.Text = player.Name
+                        esp.name.Position =
+                            Vector2.new(pos.X, pos.Y - esp.box.Size.Y / 2 - 16)
+                        esp.name.Visible = showNames
+                        esp.distance.Text = math.floor(dist) .. 'm'
+                        esp.distance.Position =
+                            Vector2.new(pos.X, pos.Y + esp.box.Size.Y / 2)
+                        esp.distance.Visible = showDistance
+                        if humanoid then
+                            esp.health.Text = math.floor(humanoid.Health)
+                                .. '/'
+                                .. humanoid.MaxHealth
+                            esp.health.Position = Vector2.new(
+                                pos.X,
+                                pos.Y + esp.box.Size.Y / 2 + 14
+                            )
+                            esp.health.Visible = showHealth
+                        else
+                            esp.health.Visible = false
                         end
-                    end
-                else
-                    safeDisconnect(noclipConn)
-                end
-            end))
-            Rayfield:Notify({
-                Title = 'Noclip',
-                Content = 'Walking through walls! 👻',
-                Duration = 3,
-            })
-        end
-    end,
-})
-
-LocalPlayerTab:CreateToggle({
-    Name = 'Godmode 🛡️',
-    CurrentValue = false,
-    Callback = function(v)
-        godmodeEnabled = v
-        if v then
-            local godConn
-            godConn = trackConn(RunService.RenderStepped:Connect(function()
-                if godmodeEnabled then
-                    local hum = LocalPlayer.Character
-                        and LocalPlayer.Character:FindFirstChild('Humanoid')
-                    if hum then
-                        hum.Health = hum.MaxHealth
-                    end
-                else
-                    safeDisconnect(godConn)
-                end
-            end))
-            Rayfield:Notify({
-                Title = 'Godmode',
-                Content = 'Invincible! Nothing can touch you! 🛡️',
-                Duration = 3,
-            })
-        end
-    end,
-})
-
-LocalPlayerTab:CreateToggle({
-    Name = 'Infinite Jump ♾️',
-    CurrentValue = false,
-    Callback = function(v)
-        infiniteJumpEnabled = v
-        if v then
-            local infJumpConn
-            infJumpConn = trackConn(UIS.JumpRequest:Connect(function()
-                if infiniteJumpEnabled then
-                    local hum = LocalPlayer.Character
-                        and LocalPlayer.Character:FindFirstChild('Humanoid')
-                    if hum then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    else
+                        esp.box.Visible = false
+                        esp.name.Visible = false
+                        esp.distance.Visible = false
+                        esp.health.Visible = false
                     end
                 end
-            end))
-            Rayfield:Notify({
-                Title = 'Infinite Jump',
-                Content = 'Jump forever! ♾️🦘',
-                Duration = 3,
-            })
+            end
         end
-    end,
-})
-
--- Respawn handling
-trackConn(LocalPlayer.CharacterAdded:Connect(applyLocalPlayerMods))
-
-LocalPlayerTab:CreateButton({
-    Name = 'Emote: Dab 🤙',
-    Callback = function()
-        -- Add fun particle or sound
-        local char = LocalPlayer.Character
-        if char then
-            local particle = Instance.new('ParticleEmitter')
-            particle.Parent = char:FindFirstChild('HumanoidRootPart')
-            particle.Rate = 100
-            particle.Lifetime = NumberRange.new(1)
-            particle.Enabled = true
-            task.wait(2)
-            particle.Enabled = false
-            task.delay(1, particle.Destroy, particle)
-        end
-        Rayfield:Notify({
-            Title = 'Emote',
-            Content = 'You dabbed with style! 🤙✨',
-            Duration = 2,
-        })
-    end,
-})
-
--- ESP tab (added more options: Wallhack, Tracers)
-EspTab:CreateToggle({
-    Name = 'Evidence ESP 🔍',
-    CurrentValue = false,
-    Callback = function(v)
-        evidenceESPEnabled = v
-        if v then
-            enableEvidenceESP()
-            Rayfield:Notify({
-                Title = 'ESP',
-                Content = 'Evidence glowing! ✨',
-                Duration = 2,
-            })
-        else
-            disableEvidenceESP()
-        end
-    end,
-})
-
-EspTab:CreateToggle({
-    Name = 'Player ESP 👥',
-    CurrentValue = false,
-    Callback = function(v)
-        playerESPEnabled = v
-        if v then
-            enablePlayerESP()
-            Rayfield:Notify({
-                Title = 'ESP',
-                Content = 'Players visible! 👀',
-                Duration = 2,
-            })
-        else
-            disablePlayerESP()
-        end
-    end,
-})
-
-EspTab:CreateToggle({
-    Name = 'Show Suspect on Evidence 😈',
-    CurrentValue = false,
-    Callback = function(v)
-        showSuspect = v
-        if evidenceESPEnabled then
-            disableEvidenceESP()
-            enableEvidenceESP()
-        end
-        Rayfield:Notify({
-            Title = 'ESP',
-            Content = 'Suspect revealed on evidence! 🔍😈',
-            Duration = 2,
-        })
-    end,
-})
-
--- Game Values tab (added refresh button)
-local gameValuesList = {
+        task.wait()
+    end
+end)
+-- =======================
+-- GAME VALUES TAB
+-- =======================
+local gameValueLabels = {}
+local gameValueNames = {
     'GadgetPickingDone',
     'GadgetPickingTimeLeft',
     'GadgetRemainder',
@@ -1005,158 +435,202 @@ local gameValuesList = {
     'ServerType',
     'VotesForExit',
 }
-
-local labels = {}
-
-local function createOrUpdateLabel(name, value)
-    local text = name .. ': ' .. tostring(value) .. ' 📊'
-    if not labels[name] then
-        labels[name] = GameValuesTab:CreateLabel(text)
-    else
-        labels[name]:Set(text)
-    end
+for _, name in ipairs(gameValueNames) do
+    local label = GameValuesTab:CreateLabel(name .. ': Loading...')
+    table.insert(gameValueLabels, label)
 end
-
-if ValuesFolder then
-    for _, name in gameValuesList do
-        local val = ValuesFolder:FindFirstChild(name)
-        if val then
-            createOrUpdateLabel(name, val.Value)
-            trackConn(val.Changed:Connect(function()
-                createOrUpdateLabel(name, val.Value)
-            end))
-        else
-            createOrUpdateLabel(name, '(not found)')
+spawn(function()
+    while true do
+        for i, name in ipairs(gameValueNames) do
+            local value = RS.Values:FindFirstChild(name)
+            local valStr = value and tostring(value.Value) or 'Not Found'
+            gameValueLabels[i]:Set(name .. ': ' .. valStr)
+        end
+        task.wait(1)
+    end
+end)
+-- =======================
+-- AUTO FARM VARIABLES
+-- =======================
+local roundHandled = false
+local debounce = false
+-- Helper function
+local function notify(title, text, duration)
+    print(string.format('[wbuhub] %s — %s', title or 'Info', text or ''))
+    pcall(function()
+        StarterGui:SetCore('SendNotification', {
+            Title = tostring(title or 'wbuhub'),
+            Text = tostring(text or ''),
+            Duration = duration or 3,
+        })
+    end)
+end
+-- Find active map
+local function findActiveMap()
+    local mapFolder = Workspace:FindFirstChild('Map')
+    if not mapFolder then
+        return nil
+    end
+    for _, v in ipairs(mapFolder:GetChildren()) do
+        if v:FindFirstChild('Exit') then
+            return v
         end
     end
-else
-    GameValuesTab:CreateLabel('Values folder not found 😢')
+    return nil
 end
-
-GameValuesTab:CreateButton({
-    Name = 'Refresh Values 🔄',
-    Callback = function()
-        if ValuesFolder then
-            for _, name in gameValuesList do
-                local val = ValuesFolder:FindFirstChild(name)
-                if val then
-                    createOrUpdateLabel(name, val.Value)
+-- Check if in lobby
+local function isInLobby()
+    local lobby = Workspace:FindFirstChild('Lobby')
+    return lobby and #lobby:GetChildren() > 0
+end
+-- Auto-Play
+spawn(function()
+    local ok, err = pcall(function()
+        local menuGui = playerGui:WaitForChild('MenuGui', 10)
+        if not menuGui then
+            return
+        end
+        local playBtn = menuGui:WaitForChild('Play', 5)
+        if not playBtn then
+            return
+        end
+        local click = playBtn:FindFirstChild('Click')
+        local key = playBtn:FindFirstChild('Key')
+        task.wait(0.5 + math.random() * 0.5)
+        if click then
+            if click:IsA('ClickDetector') then
+                fireclickdetector(click)
+            end
+            if click:IsA('ProximityPrompt') then
+                fireproximityprompt(click)
+            end
+        end
+        task.wait(0.3 + math.random() * 0.2)
+        if key then
+            if key:IsA('ClickDetector') then
+                fireclickdetector(key)
+            end
+            if key:IsA('ProximityPrompt') then
+                fireproximityprompt(key)
+            end
+        end
+        task.wait(0.5 + math.random() * 0.3)
+        local events = RS:WaitForChild('Events', 5)
+        if not events then
+            return
+        end
+        local pressed = events:WaitForChild('PressedPlayButton', 5)
+        if pressed then
+            pressed:FireServer()
+        end
+        task.wait(0.4 + math.random() * 0.2)
+        local playInvoke = events:WaitForChild('Play', 5)
+        if playInvoke then
+            playInvoke:InvokeServer()
+        end
+    end)
+    if not ok then
+        warn('[wbuhub] Auto-Play failed:', err)
+    end
+end)
+-- Lobby Routine
+function runLobbyRoutine()
+    if debounce then
+        return
+    end
+    debounce = true
+    local ok, err = pcall(function()
+        notify('Lobby', 'Lobby detected — starting routine', 2)
+        local lobby = Workspace:FindFirstChild('Lobby')
+        local lobbies = lobby and lobby:FindFirstChild('Lobbies')
+        if not lobbies then
+            return
+        end
+        local touches = {}
+        for _, obj in ipairs(lobbies:GetDescendants()) do
+            if obj.Name == 'TouchInterest' then
+                table.insert(touches, obj.Parent)
+            end
+        end
+        if #touches == 0 then
+            return
+        end
+        local chosen = touches[math.random(1, #touches)]
+        local character = LocalPlayer.Character
+            or LocalPlayer.CharacterAdded:Wait()
+        local hrp = character:WaitForChild('HumanoidRootPart', 5)
+        if hrp then
+            firetouchinterest(hrp, chosen, 0)
+            task.wait(0.1)
+            firetouchinterest(hrp, chosen, 1)
+            notify('AutoFarm', 'Random TouchInterest fired', 2)
+        end
+        task.wait(1)
+        local args = { 1, 'Cursed Cathedral', 'Anyone' }
+        RS:WaitForChild('Events')
+            :WaitForChild('CreateParty')
+            :FireServer(unpack(args))
+        notify('AutoFarm', 'CreateParty fired', 2)
+    end)
+    if not ok then
+        warn('[wbuhub] Lobby routine failed:', err)
+    end
+    debounce = false
+end
+-- AutoFarm Routine
+function runAutoFarmOnce()
+    if debounce then
+        return
+    end
+    debounce = true
+    local ok, err = pcall(function()
+        notify('AutoFarm', 'Map detected — running sequence', 2)
+        local currentMap = findActiveMap()
+        if not currentMap then
+            return
+        end
+        local exitObj = currentMap:FindFirstChild('Exit')
+        local exitPrompt = exitObj
+            and exitObj:FindFirstChildOfClass('ProximityPrompt')
+        if exitPrompt then
+            exitPrompt.MaxActivationDistance = math.huge
+            fireproximityprompt(exitPrompt, 1, false)
+            notify('AutoFarm', 'Exit ProximityPrompt fired', 2)
+        end
+        task.wait(0.25)
+        local target = guiltySuspect.Value or 'Unknown'
+        RS:WaitForChild('Events')
+            :WaitForChild('AccuseSuspect')
+            :FireServer(target)
+        notify('AutoFarm', 'Accused suspect: ' .. tostring(target), 2)
+        roundHandled = true
+    end)
+    if not ok then
+        warn('[wbuhub] AutoFarm routine failed:', err)
+    end
+    debounce = false
+end
+-- Watcher
+spawn(function()
+    while true do
+        if autoExecEnabled then
+            local currentMap = findActiveMap()
+            if currentMap and not roundHandled then
+                runAutoFarmOnce()
+            elseif not currentMap then
+                roundHandled = false
+                if isInLobby() then
+                    runLobbyRoutine()
                 end
             end
-            Rayfield:Notify({
-                Title = 'Game Values',
-                Content = 'Refreshed! 🔄',
-                Duration = 2,
-            })
         end
-    end,
-})
-
--- FUN Tab (new: Memes, Sounds, Particles, Random Teleport)
-FunTab:CreateButton({
-    Name = 'Play Epic Sound 🎵',
-    Callback = function()
-        local sound = Instance.new('Sound')
-        sound.SoundId = 'rbxassetid://1848354536' -- Epic meme sound
-        sound.Parent = workspace
-        sound:Play()
-        task.delay(5, sound.Destroy, sound)
-        Rayfield:Notify({
-            Title = 'Fun',
-            Content = 'Epic sound playing! 🎵😂',
-            Duration = 2,
-        })
-    end,
-})
-
-FunTab:CreateButton({
-    Name = 'Spawn Particles 🌟',
-    Callback = function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild('HumanoidRootPart')
-        if hrp then
-            local particle = Instance.new('ParticleEmitter')
-            particle.Texture = 'rbxassetid://241853790'
-            particle.Rate = 200
-            particle.Lifetime = NumberRange.new(2)
-            particle.Speed = NumberRange.new(10)
-            particle.Parent = hrp
-            particle.Enabled = true
-            task.wait(3)
-            particle.Enabled = false
-            task.delay(2, particle.Destroy, particle)
-            Rayfield:Notify({
-                Title = 'Fun',
-                Content = 'Particles everywhere! 🌟✨',
-                Duration = 2,
-            })
-        end
-    end,
-})
-
-FunTab:CreateButton({
-    Name = 'Random Teleport 🎲',
-    Callback = function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild('HumanoidRootPart')
-        if hrp then
-            local randomPos = Vector3.new(
-                math.random(-500, 500),
-                math.random(50, 200),
-                math.random(-500, 500)
-            )
-            hrp.CFrame = CFrame.new(randomPos)
-            Rayfield:Notify({
-                Title = 'Fun',
-                Content = 'Teleported randomly! Where am I? 🎲😵',
-                Duration = 3,
-            })
-        end
-    end,
-})
-
-FunTab:CreateButton({
-    Name = 'Troll Notification Spam 😜',
-    Callback = function()
-        for i = 1, 5 do
-            Rayfield:Notify({
-                Title = 'Troll',
-                Content = 'You got trolled! 😂' .. i,
-                Duration = 1,
-            })
-            task.wait(0.5)
-        end
-    end,
-})
-
--- SETTINGS tab (added more: Theme changer, Credits)
-SettingsTab:CreateButton({
-    Name = 'Destruct (Cleanup ESP) 🧹',
-    Callback = function()
-        destruct()
-        Rayfield:Notify({
-            Title = 'Cleanup',
-            Content = 'All cleaned up! ✨',
-            Duration = 2,
-        })
-    end,
-})
-
-SettingsTab:CreateButton({
-    Name = 'Unload Script',
-    Callback = fullUnload,
-})
-
-SettingsTab:CreateParagraph({
-    Title = 'Credits ❤️',
-    Content = 'Made by wburoli - Thanks for using wbuhub! Join Discord for updates: https://discord.gg/5ARTQYGvnX',
-})
-
--- Final message
-MainTab:CreateLabel(
-    '🌙 wbuhub - keyless loaded up correctly 🌙 '
-)
-
-print(
-    '[wbuhub] Thank you for Using WBUHUB! Join Discord: https://discord.gg/5ARTQYGvnX'
-)
+        task.wait(0.9)
+    end
+end)
+-- Character Added for re-enable
+LocalPlayer.CharacterAdded:Connect(function()
+    if autoExecEnabled then
+        notify('AutoExec', 'AutoFarm re-enabled on respawn/teleport', 3)
+    end
+end)
+notify('wbuhub', 'AutoFarm loaded, Discord copied, timer running!', 4)
