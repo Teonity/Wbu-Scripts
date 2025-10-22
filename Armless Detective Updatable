@@ -7,7 +7,7 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = 'wbuhub - keyless',
-    LoadingTitle = 'wbuhub - keyless',
+    LoadingTitle = 'wbuhub - armless detective',
     LoadingSubtitle = 'by wbuhub',
     ConfigurationSaving = {
         Enabled = true,
@@ -19,7 +19,7 @@ local Window = Rayfield:CreateWindow({
         Invite = '5ARTQYGvnX',
         RememberJoins = true,
     },
-    KeySystem = false,
+    KeySystem = true,
 })
 -- Tabs
 local AutofarmTab = Window:CreateTab('Autofarm')
@@ -633,4 +633,4 @@ LocalPlayer.CharacterAdded:Connect(function()
         notify('AutoExec', 'AutoFarm re-enabled on respawn/teleport', 3)
     end
 end)
-notify('wbuhub', 'AutoFarm loaded, Discord copied, timer running!', 4)
+notify('wbuhub', 'Thanks for using [wbuhub]!', 4)
