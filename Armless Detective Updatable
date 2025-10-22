@@ -1,6 +1,125 @@
+-- Key System Implementation
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Players = game:GetService('Players')
+local StarterGui = game:GetService('StarterGui')
+
+-- Constants
+local Constants = {
+    DISCORD_URL = 'https://discord.gg/5ARTQYGvnX',
+    VALID_KEY = 'WBUx', -- Updated key
+    KEY_FILE = 'wbuhub/key.txt',
+}
+
+-- Notify function
+local function notify(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore('SendNotification', {
+            Title = title or 'Key System',
+            Text = text or '',
+            Duration = duration or 3,
+        })
+    end)
+end
+
+-- Check saved key
+local savedKey = nil
+local keyValidated = false
+if isfile and readfile then
+    if isfile(Constants.KEY_FILE) then
+        savedKey = readfile(Constants.KEY_FILE)
+        if savedKey == Constants.VALID_KEY then
+            keyValidated = true
+            notify('Success', 'Valid key found! Loading script...', 3)
+        end
+    end
+end
+
+-- Create Key System GUI if key not validated
+if not keyValidated then
+    local KeyWindow = Rayfield:CreateWindow({
+        Name = 'wbuhub Key System',
+        LoadingTitle = 'wbuhub - Key Verification',
+        LoadingSubtitle = 'Enter your key to proceed',
+        ConfigurationSaving = { Enabled = false },
+        Discord = {
+            Enabled = true,
+            Invite = Constants.DISCORD_URL:match('https://discord%.gg/(.+)')
+                or '5ARTQYGvnX',
+            RememberJoins = true,
+        },
+        KeySystem = false,
+    })
+
+    local KeyTab = KeyWindow:CreateTab('Key Input')
+
+    -- Key Input
+    KeyTab:CreateInput({
+        Name = 'Enter Key',
+        PlaceholderText = 'Type your key here...',
+        RemoveTextAfterFocusLost = false,
+        Callback = function(input)
+            if input == Constants.VALID_KEY then
+                if writefile then
+                    pcall(function()
+                        writefile(Constants.KEY_FILE, input)
+                    end)
+                end
+                notify('Success', 'Key verified! Loading script...', 3)
+                keyValidated = true
+                KeyWindow:Destroy()
+            else
+                notify(
+                    'Error',
+                    'Invalid key! Get a valid key from our Discord.',
+                    5
+                )
+            end
+        end,
+    })
+
+    -- Discord Button
+    KeyTab:CreateButton({
+        Name = 'Join Discord for Key',
+        Callback = function()
+            if setclipboard then
+                pcall(function()
+                    setclipboard(Constants.DISCORD_URL)
+                    notify(
+                        'Info',
+                        'Discord invite copied! Paste it in your browser.',
+                        3
+                    )
+                end)
+            else
+                notify('Info', 'Join Discord: ' .. Constants.DISCORD_URL, 5)
+            end
+        end,
+    })
+
+    -- Auto-copy Discord link on load
+    if setclipboard then
+        pcall(function()
+            setclipboard(Constants.DISCORD_URL)
+            notify(
+                'Info',
+                'Discord invite copied to clipboard! Join for key updates.',
+                5
+            )
+        end)
+    end
+
+    -- Initial notification
+    notify('wbuhub', 'Enter your key to access the script!', 4)
+
+    -- Wait for key validation
+    while not keyValidated do
+        task.wait(0.5)
+    end
+end
+
+-- Original Script (with modified Autofarm tab update loop)
 local Window = Rayfield:CreateWindow({
-    Name = 'wbuhub - keyless',
+    Name = 'wbuhub - Armless Detective',
     LoadingTitle = 'wbuhub - armless detective',
     LoadingSubtitle = 'by wbuhub',
     ConfigurationSaving = {
@@ -121,26 +240,43 @@ spawn(function()
         local s = math.floor(elapsed % 60)
         timerLabel:Set(string.format('Timer: %d:%02d:%02d', h, m, s))
         local coins, candy = 0, 0
-        local gui = LocalPlayer.PlayerGui:FindFirstChild('MainGui')
-        if gui then
-            local holder = gui:FindFirstChild('Holder')
-            local top = holder and holder:FindFirstChild('Top')
-            local inner = top and top:FindFirstChild('Holder')
-            if inner then
-                local c = inner:FindFirstChild('Coins')
-                local ca = inner:FindFirstChild('Candy')
-                if c and c:FindFirstChild('Amount') then
-                    coins = tonumber(c.Amount.Text:gsub(',', '')) or 0
-                end
-                if ca and ca:FindFirstChild('Amount') then
-                    candy = tonumber(ca.Amount.Text:gsub(',', '')) or 0
+        -- Fetch Coins and Candy from specified GUI paths
+        local success, result = pcall(function()
+            local gui = game:GetService('Players').LocalPlayer.PlayerGui
+                :FindFirstChild('MainGui')
+            if gui then
+                local holder = gui:FindFirstChild('Holder')
+                local top = holder and holder:FindFirstChild('Top')
+                local inner = top and top:FindFirstChild('Holder')
+                if inner then
+                    local coinsObj = inner:FindFirstChild('Coins')
+                    local candyObj = inner:FindFirstChild('Candy')
+                    if coinsObj and coinsObj:FindFirstChild('Amount') then
+                        coins = tonumber(coinsObj.Amount.Text:gsub(',', ''))
+                            or 0
+                    end
+                    if candyObj and candyObj:FindFirstChild('Amount') then
+                        candy = tonumber(candyObj.Amount.Text:gsub(',', ''))
+                            or 0
+                    end
                 end
             end
+            return coins, candy
+        end)
+        if not success then
+            coins, candy = 0, 0 -- Silently default to 0
         end
         moneyLabel:Set('Money: ' .. tostring(coins))
         candyLabel:Set('Candy: ' .. tostring(candy))
-        local suspect = guiltySuspect and guiltySuspect.Value or 'Unknown'
-        guiltyLabel:Set('Guilty Suspect: ' .. tostring(suspect))
+        -- Fetch Guilty Suspect from specified path
+        local suspect = 'Unknown'
+        local suspectSuccess, suspectResult = pcall(function()
+            return game:GetService('ReplicatedStorage').Values.GuiltySuspect.Value
+        end)
+        if suspectSuccess then
+            suspect = tostring(suspectResult) or 'Unknown'
+        end
+        guiltyLabel:Set('Guilty Suspect: ' .. suspect)
         task.wait(SETTINGS.TimerUpdateRate)
     end
 end)
