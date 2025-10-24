@@ -30,7 +30,7 @@ local Games = {
     -- ---------------------------------------------------------------
     --  EXAMPLE: Armless Detective
     -- ---------------------------------------------------------------
-    [1234567890] = {
+    [97719631053849] = {
         Name = "Armless Detective",
         URL  = "https://raw.githubusercontent.com/Teonity/Wbu-Scripts/refs/heads/main/Armless%20Detective%20Loader"
     },
