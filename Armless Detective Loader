@@ -17,8 +17,8 @@ local _WBU_Constants = {
     SETTINGS_FILE = 'wbuhub/wbuhub-sets.txt',
     ERROR_LOG = 'wbuhub/errors.txt',
     GROUP_ID = 946378404,
-    MOD_ROLE_IDS = {490360110, 488904041, 533030021},
-    OWNER_ID = 5500539802,
+    MOD_ROLE_IDS = {490360110, 8987623965, 4118621240},
+    OWNER_ID = {5500539802, 488904041, 533030021},
     MAPS = {'Motel Room', 'Humble Abode', 'Bathroom', 'Moolah Manor', 'Cursed Cathedral'},
 }
 
