@@ -42,67 +42,7 @@ local function _WBU_LogError(err)
     end
 end
 
--- Key System
-local _WBU_KeyValidated = false
-if isfile and readfile then
-    if isfile(_WBU_Constants.KEY_FILE) then
-        if readfile(_WBU_Constants.KEY_FILE) == _WBU_Constants.VALID_KEY then
-            _WBU_KeyValidated = true
-            _WBU_Notify('Success', 'Valid key found! Loading script... 🌟', 3)
-        end
-    end
-end
-
-if not _WBU_KeyValidated then
-    local _WBU_KeyWindow = _WBU_Rayfield:CreateWindow({
-        Name = 'wbuhub Key System',
-        LoadingTitle = 'wbuhub - Key Verification',
-        LoadingSubtitle = 'Enter your key to proceed',
-        ConfigurationSaving = { Enabled = false },
-        Discord = { Enabled = true, Invite = '5ARTQYGvnX', RememberJoins = true },
-        KeySystem = false,
-    })
-    local _WBU_KeyTab = _WBU_KeyWindow:CreateTab('Key Input')
-    _WBU_KeyTab:CreateInput({
-        Name = 'Enter Key 🔑',
-        PlaceholderText = 'Type your key here...',
-        RemoveTextAfterFocusLost = false,
-        Callback = function(input)
-            if input == _WBU_Constants.VALID_KEY then
-                if writefile then
-                    pcall(function() writefile(_WBU_Constants.KEY_FILE, input) end)
-                end
-                _WBU_KeyValidated = true
-                _WBU_KeyWindow:Destroy()
-                _WBU_Notify('Success', 'Key verified! Loading script... 🌟', 3)
-            else
-                _WBU_Notify('Error', 'Invalid key! Join Discord for a valid key. 🚫', 5)
-            end
-        end,
-    })
-    _WBU_KeyTab:CreateButton({
-        Name = 'Join Discord for Key 📩',
-        Callback = function()
-            if setclipboard then
-                pcall(function()
-                    setclipboard(_WBU_Constants.DISCORD_URL)
-                    _WBU_Notify('Info', 'Discord invite copied! 📋', 3)
-                end)
-            else
-                _WBU_Notify('Info', 'Join: ' .. _WBU_Constants.DISCORD_URL, 5)
-            end
-        end,
-    })
-    if setclipboard then
-        pcall(function()
-            setclipboard(_WBU_Constants.DISCORD_URL)
-            _WBU_Notify('Info', 'Discord invite copied! Join for key. 📋', 5)
-        end)
-    end
-    while not _WBU_KeyValidated do
-        task.wait(0.5)
-    end
-end
+local _WBU_KeyValidated = true  -- KEY SYSTEM BYPASSED
 
 -- Main UI
 local _WBU_Window = _WBU_Rayfield:CreateWindow({
