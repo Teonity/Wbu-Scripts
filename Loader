@@ -35,11 +35,11 @@ local Games = {
         URL  = "https://raw.githubusercontent.com/Teonity/Wbu-Scripts/refs/heads/main/Armless%20Detective%20Loader"
     },
     [132026734751822] = {
-        Name = "Retake", -- Roblox Retake ( REPO )
+        Name = "Retake", -- Roblox Retake ( REPO, INGAME )
         URL  = "https://raw.githubusercontent.com/Teonity/Wbu-Scripts/refs/heads/main/Retake%20Loader"
     },
     [93153361012402] = {
-        Name = "Retake", -- Roblox Retake ( REPO )
+        Name = "Retake", -- Roblox Retake ( REPO, LOBBY )
         URL  = "https://raw.githubusercontent.com/Teonity/Wbu-Scripts/refs/heads/main/Retake%20Loader"
     },
 
