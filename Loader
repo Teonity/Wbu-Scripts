@@ -34,6 +34,10 @@ local Games = {
         Name = "Armless Detective",
         URL  = "https://raw.githubusercontent.com/Teonity/Wbu-Scripts/refs/heads/main/Armless%20Detective%20Loader"
     },
+    [132026734751822] = {
+        Name = "Retake",
+        URL  = "print("game found")"
+    },
 
     -- ---------------------------------------------------------------
     --  ADD MORE GAMES BELOW (copy-paste this block)
