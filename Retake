@@ -1,0 +1,599 @@
+-- wbuhub - Retake
+-- by wburoli
+-- Enhanced Version: Clean, Efficient, Customizable ESP with Proper Cleanup
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = 'wbuhub - Retake',
+    LoadingTitle = 'wbuhub - Retake',
+    LoadingSubtitle = 'by wburoli',
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = 'wbuhub',
+        FileName = 'Retake',
+    },
+    KeySystem = false,
+})
+
+-- Services
+local Players = game:GetService('Players')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local TweenService = game:GetService('TweenService')
+local LocalPlayer = Players.LocalPlayer
+
+-- ESP Management
+local lootESP = {}
+local cartESP = nil
+local headESP = {}
+local playerESP = {}
+local colors = {
+    loot = Color3.fromRGB(0, 255, 0),
+    cart = Color3.fromRGB(255, 255, 0),
+    head = Color3.fromRGB(255, 0, 0),
+    player = Color3.fromRGB(0, 255, 255),
+}
+local connections = {
+    loot = {},
+    head = {},
+    player = {},
+}
+
+local function AddHighlight(obj, color, nameText, espTable)
+    if not obj or espTable[obj] then
+        return
+    end
+
+    local hl = Instance.new('Highlight')
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency = 0.4
+    hl.OutlineTransparency = 0
+    hl.Adornee = obj
+    hl.Parent = obj
+
+    local bg = Instance.new('BillboardGui')
+    bg.Size = UDim2.new(0, 140, 0, 40)
+    bg.StudsOffset = Vector3.new(0, 3.5, 0)
+    bg.Adornee = obj
+    bg.AlwaysOnTop = true
+    bg.Parent = obj
+
+    local label = Instance.new('TextLabel')
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = nameText
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0.7
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = bg
+
+    espTable[obj] = { hl = hl, bg = bg, label = label }
+end
+
+local function RemoveHighlight(obj, espTable)
+    if not obj or not espTable[obj] then
+        return
+    end
+    pcall(function()
+        espTable[obj].hl:Destroy()
+        espTable[obj].bg:Destroy()
+    end)
+    espTable[obj] = nil
+end
+
+local function UpdateColor(espType, newColor)
+    colors[espType] = newColor
+    local espTable = espType == 'loot' and lootESP
+        or espType == 'cart' and { cart = cartESP }
+        or espType == 'head' and headESP
+        or playerESP
+    for obj, data in pairs(espTable) do
+        if data and data.hl then
+            data.hl.FillColor = newColor
+            data.hl.OutlineColor = newColor
+            data.label.TextColor3 = newColor
+        end
+    end
+end
+
+-- Function to fire ProximityPrompt
+local function fireproximityprompt(prompt)
+    if not prompt then
+        return
+    end
+    local oldHold = prompt.HoldDuration
+    prompt.HoldDuration = 0
+    prompt:InputHoldBegin()
+    task.wait(0.01)
+    prompt:InputHoldEnd()
+    prompt.HoldDuration = oldHold
+end
+
+-- Tabs
+local MainTab = Window:CreateTab('Main')
+local ESPTab = Window:CreateTab('ESP')
+
+-- MAIN TAB: Gears & Loot
+MainTab:CreateSection('Gears & Loot')
+
+MainTab:CreateButton({
+    Name = 'Get Infinite Gears',
+    Callback = function()
+        pcall(function()
+            ReplicatedStorage.Remotes['Purchase Accessory']:InvokeServer(
+                'wbuhub - Retake',
+                -9e999
+            )
+        end)
+        Rayfield:Notify({
+            Title = 'Gears Activated',
+            Content = 'Please Rejoin the game so the Gears will load up!',
+            Duration = 8,
+        })
+    end,
+})
+
+MainTab:CreateButton({
+    Name = 'Bring All Loot to Player',
+    Callback = function()
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = char:WaitForChild('HumanoidRootPart')
+        local folder = workspace:FindFirstChild('Spawned Loot')
+        if not folder then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'Spawned Loot folder not found!',
+                Duration = 5,
+            })
+            return
+        end
+
+        for _, item in ipairs(folder:GetChildren()) do
+            local part = item:IsA('BasePart') and item
+                or item.PrimaryPart
+                or item:FindFirstChildWhichIsA('BasePart')
+            if part then
+                -- Set Holder.Value to player's character
+                local holder = item:FindFirstChild('Holder')
+                if holder and holder:IsA('ObjectValue') then
+                    holder.Value = char
+                end
+
+                -- Tween to position
+                if part.Anchored then
+                    part.Anchored = false
+                end
+                local tweenInfo = TweenInfo.new(
+                    0.5,
+                    Enum.EasingStyle.Quad,
+                    Enum.EasingDirection.Out
+                )
+                local tween = TweenService:Create(
+                    part,
+                    tweenInfo,
+                    {
+                        CFrame = hrp.CFrame
+                            * CFrame.new(
+                                math.random(-5, 5),
+                                2,
+                                math.random(-5, 5)
+                            ),
+                    }
+                )
+                tween:Play()
+
+                -- Fire TouchInterest and ProximityPrompt after tween
+                tween.Completed:Connect(function()
+                    local touchInterest =
+                        item:FindFirstChild('TouchInterest', true)
+                    if touchInterest then
+                        local touchPart = touchInterest.Parent
+                        if touchPart then
+                            firetouchinterest(touchPart, hrp, 1)
+                            task.wait(0.1)
+                            firetouchinterest(touchPart, hrp, 0)
+                        end
+                    end
+
+                    local prompt = item:FindFirstChild('ProximityPrompt', true)
+                    fireproximityprompt(prompt)
+                end)
+
+                task.wait(0.2)
+            end
+        end
+        Rayfield:Notify({
+            Title = 'Success',
+            Content = 'Loot brought to player!',
+            Duration = 4,
+        })
+    end,
+})
+
+MainTab:CreateButton({
+    Name = 'Bring All Loot to Cart',
+    Callback = function()
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local cartFolder = workspace:FindFirstChild('Cart')
+        local moneyCart = cartFolder and cartFolder:FindFirstChild('MoneyCart')
+        local hitbox = moneyCart and moneyCart:FindFirstChild('Hitbox')
+        if not hitbox then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'Cart Hitbox not found!',
+                Duration = 5,
+            })
+            return
+        end
+        local folder = workspace:FindFirstChild('Spawned Loot')
+        if not folder then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'Spawned Loot folder not found!',
+                Duration = 5,
+            })
+            return
+        end
+
+        -- Freeze cart and set pass-through
+        local cartParts = {}
+        local originalAnchored = {}
+        local originalCollide = {}
+        for _, p in moneyCart:GetDescendants() do
+            if p:IsA('BasePart') then
+                table.insert(cartParts, p)
+                originalAnchored[p] = p.Anchored
+                originalCollide[p] = p.CanCollide
+                p.Anchored = true
+                p.CanCollide = false
+            end
+        end
+
+        for _, item in ipairs(folder:GetChildren()) do
+            local part = item:IsA('BasePart') and item
+                or item.PrimaryPart
+                or item:FindFirstChildWhichIsA('BasePart')
+            if part then
+                -- Set Holder.Value to player's character
+                local holder = item:FindFirstChild('Holder')
+                if holder and holder:IsA('ObjectValue') then
+                    holder.Value = char
+                end
+
+                -- Tween to cart's middle
+                if part.Anchored then
+                    part.Anchored = false
+                end
+                local tweenInfo = TweenInfo.new(
+                    0.5,
+                    Enum.EasingStyle.Quad,
+                    Enum.EasingDirection.Out
+                )
+                local tween = TweenService:Create(
+                    part,
+                    tweenInfo,
+                    { CFrame = hitbox.CFrame }
+                )
+                tween:Play()
+
+                -- After tween: fire touch, freeze for 0.5, then spin, and fire ProximityPrompt
+                tween.Completed:Connect(function()
+                    local touchInterest =
+                        item:FindFirstChild('TouchInterest', true)
+                    if touchInterest then
+                        local touchPart = touchInterest.Parent
+                        if touchPart then
+                            firetouchinterest(touchPart, hitbox, 1)
+                            task.wait(0.1)
+                            firetouchinterest(touchPart, hitbox, 0)
+                        end
+                    end
+
+                    local prompt = item:FindFirstChild('ProximityPrompt', true)
+                    fireproximityprompt(prompt)
+
+                    -- Freeze for 0.5
+                    part.Anchored = true
+                    task.wait(0.5)
+                    part.Anchored = false
+
+                    -- Spin with angular velocity (slow spin, adjusted to ~10 units equivalent)
+                    local av = Instance.new('AngularVelocity')
+                    av.AngularVelocity = Vector3.new(0, 10, 0) -- 10 rad/s for spin
+                    av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                    av.Parent = part
+                    task.wait(1) -- Spin for 1 second
+                    av:Destroy()
+                end)
+
+                task.wait(0.2)
+            end
+        end
+
+        -- Unfreeze cart after 1 sec
+        task.wait(1)
+        for _, p in cartParts do
+            p.Anchored = originalAnchored[p]
+            p.CanCollide = originalCollide[p]
+        end
+
+        Rayfield:Notify({
+            Title = 'Success',
+            Content = 'Loot brought to cart!',
+            Duration = 4,
+        })
+    end,
+})
+
+MainTab:CreateSection('Movement')
+
+local walkSpeed = 14
+local jumpPower = 50
+
+local function ApplyMovement(char)
+    local hum = char:WaitForChild('Humanoid', 5)
+    if hum then
+        hum.WalkSpeed = walkSpeed
+        hum.JumpPower = jumpPower
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(ApplyMovement)
+if LocalPlayer.Character then
+    ApplyMovement(LocalPlayer.Character)
+end
+
+MainTab:CreateSlider({
+    Name = 'Walk Speed',
+    Range = { 14, 200 },
+    Increment = 5,
+    CurrentValue = 14,
+    Callback = function(v)
+        walkSpeed = v
+        if LocalPlayer.Character then
+            ApplyMovement(LocalPlayer.Character)
+        end
+    end,
+})
+
+MainTab:CreateSlider({
+    Name = 'Jump Power',
+    Range = { 50, 300 },
+    Increment = 10,
+    CurrentValue = 50,
+    Callback = function(v)
+        jumpPower = v
+        if LocalPlayer.Character then
+            ApplyMovement(LocalPlayer.Character)
+        end
+    end,
+})
+
+-- ESP TAB: Customizable ESP
+ESPTab:CreateSection('Loot ESP')
+local lootToggle = ESPTab:CreateToggle({
+    Name = 'Enable Loot ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        local folder = workspace:FindFirstChild('Spawned Loot')
+        if not folder then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'Spawned Loot folder not found!',
+                Duration = 5,
+            })
+            return
+        end
+        if v then
+            for _, item in folder:GetChildren() do
+                if item:IsA('Model') or item:IsA('BasePart') then
+                    AddHighlight(item, colors.loot, item.Name, lootESP)
+                end
+            end
+            table.insert(
+                connections.loot,
+                folder.ChildAdded:Connect(function(c)
+                    task.wait(0.1)
+                    if c:IsA('Model') or c:IsA('BasePart') then
+                        AddHighlight(c, colors.loot, c.Name, lootESP)
+                    end
+                end)
+            )
+            table.insert(
+                connections.loot,
+                folder.ChildRemoved:Connect(function(c)
+                    RemoveHighlight(c, lootESP)
+                end)
+            )
+        else
+            for obj in pairs(lootESP) do
+                RemoveHighlight(obj, lootESP)
+            end
+            for _, conn in ipairs(connections.loot) do
+                conn:Disconnect()
+            end
+            connections.loot = {}
+        end
+    end,
+})
+
+ESPTab:CreateColorPicker({
+    Name = 'Loot Color',
+    Color = colors.loot,
+    Callback = function(color)
+        UpdateColor('loot', color)
+    end,
+})
+
+ESPTab:CreateSection('Cart ESP')
+ESPTab:CreateToggle({
+    Name = 'Enable Cart ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        local cartFolder = workspace:FindFirstChild('Cart')
+        local cart = cartFolder and cartFolder:FindFirstChild('MoneyCart')
+        if not cart then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'MoneyCart not found!',
+                Duration = 5,
+            })
+            return
+        end
+        if v then
+            AddHighlight(cart, colors.cart, 'MoneyCart', {})
+            cartESP = cart
+        else
+            RemoveHighlight(cartESP, {})
+            cartESP = nil
+        end
+    end,
+})
+
+ESPTab:CreateColorPicker({
+    Name = 'Cart Color',
+    Color = colors.cart,
+    Callback = function(color)
+        UpdateColor('cart', color)
+    end,
+})
+
+ESPTab:CreateSection('Dead Players ESP')
+ESPTab:CreateToggle({
+    Name = 'Enable Dead Players ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        local folder = workspace:FindFirstChild('PlayerHeads')
+        if not folder then
+            Rayfield:Notify({
+                Title = 'Error',
+                Content = 'PlayerHeads folder not found!',
+                Duration = 5,
+            })
+            return
+        end
+        if v then
+            for _, head in folder:GetChildren() do
+                if head:IsA('BasePart') then
+                    AddHighlight(
+                        head,
+                        colors.head,
+                        head.Name .. ' (Dead)',
+                        headESP
+                    )
+                end
+            end
+            table.insert(
+                connections.head,
+                folder.ChildAdded:Connect(function(c)
+                    task.wait(0.1)
+                    if c:IsA('BasePart') then
+                        AddHighlight(
+                            c,
+                            colors.head,
+                            c.Name .. ' (Dead)',
+                            headESP
+                        )
+                    end
+                end)
+            )
+            table.insert(
+                connections.head,
+                folder.ChildRemoved:Connect(function(c)
+                    RemoveHighlight(c, headESP)
+                end)
+            )
+        else
+            for obj in pairs(headESP) do
+                RemoveHighlight(obj, headESP)
+            end
+            for _, conn in ipairs(connections.head) do
+                conn:Disconnect()
+            end
+            connections.head = {}
+        end
+    end,
+})
+
+ESPTab:CreateColorPicker({
+    Name = 'Dead Players Color',
+    Color = colors.head,
+    Callback = function(color)
+        UpdateColor('head', color)
+    end,
+})
+
+ESPTab:CreateSection('Alive Players ESP')
+ESPTab:CreateToggle({
+    Name = 'Enable Alive Players ESP',
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            local function AddPlayerESP(plr)
+                if plr == LocalPlayer or not plr.Character then
+                    return
+                end
+                local char = plr.Character
+                AddHighlight(char, colors.player, plr.Name, playerESP)
+                table.insert(
+                    connections.player,
+                    plr.CharacterAdded:Connect(function(newChar)
+                        task.wait(0.5)
+                        AddHighlight(
+                            newChar,
+                            colors.player,
+                            plr.Name,
+                            playerESP
+                        )
+                    end)
+                )
+                table.insert(
+                    connections.player,
+                    plr.CharacterRemoving:Connect(function(oldChar)
+                        RemoveHighlight(oldChar, playerESP)
+                    end)
+                )
+            end
+
+            for _, plr in Players:GetPlayers() do
+                AddPlayerESP(plr)
+            end
+            table.insert(
+                connections.player,
+                Players.PlayerAdded:Connect(AddPlayerESP)
+            )
+            table.insert(
+                connections.player,
+                Players.PlayerRemoving:Connect(function(plr)
+                    if plr.Character then
+                        RemoveHighlight(plr.Character, playerESP)
+                    end
+                end)
+            )
+        else
+            for obj in pairs(playerESP) do
+                RemoveHighlight(obj, playerESP)
+            end
+            for _, conn in ipairs(connections.player) do
+                conn:Disconnect()
+            end
+            connections.player = {}
+        end
+    end,
+})
+
+ESPTab:CreateColorPicker({
+    Name = 'Alive Players Color',
+    Color = colors.player,
+    Callback = function(color)
+        UpdateColor('player', color)
+    end,
+})
+
+-- Footer
+MainTab:CreateParagraph({ Title = '', Content = 'Thanks for using wbuhub!' })
+
+-- Load Config
+Rayfield:LoadConfiguration()
